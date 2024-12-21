@@ -1,0 +1,9 @@
+# Folders
+datasets
+
+# Files
+
+
+# Extensions to skip
+*.zip
+*.rar
