@@ -7,3 +7,4 @@ datasets
 # Extensions to skip
 *.zip
 *.rar
+*.qgz
