@@ -3,6 +3,8 @@ datasets
 NASA_Planet_Data
 yolo_labels
 dataset_splits
+aug
+
 # Files
 
 
