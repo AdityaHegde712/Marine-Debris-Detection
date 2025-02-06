@@ -6,11 +6,14 @@ yolo_labels
 dataset_splits
 hist_splits
 train*
+yolo-data-augmentation
 
 # Files
-
+vis_bbox.py
+todo.txt
 
 # Extensions to skip
 *.zip
 *.rar
 *.qgz
+*.jpg
