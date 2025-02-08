@@ -7,12 +7,18 @@ dataset_splits
 hist_splits
 train*
 yolo-data-augmentation
+Sample_Data
 
 # Files
 vis_bbox.py
 todo.txt
 error_images.txt
 skipped_images.txt
+FDI_Output.tif
+FDI_Output.tif.aux.xml
+NDVI_Output.tif
+NDVI_Output.tif.aux.xml
+NDWI_Output.tif
 
 # Extensions to skip
 *.zip
