@@ -5,7 +5,6 @@ NASA_Planet_Data
 yolo_labels
 dataset_splits
 hist_splits
-train*
 yolo-data-augmentation
 Sample_Data
 indiced_images
