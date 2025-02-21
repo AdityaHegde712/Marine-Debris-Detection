@@ -11,11 +11,12 @@ os.makedirs(output_folder, exist_ok=True)
 
 # Sentinel-2 Band Wavelengths (in nm)
 wavelengths = {
-    "B4": 665,   # Red
-    "B6": 740.5, # Red Edge 2
-    "B8": 832.8, # NIR
-    "B11": 1613.7 # SWIR1
+    "B4": 665,  # Red
+    "B6": 740.5,  # Red Edge 2
+    "B8": 832.8,  # NIR
+    "B11": 1613.7  # SWIR1
 }
+
 
 def compute_indices(dataset):
     """Compute NDVI, NDWI, and FDI."""
@@ -24,7 +25,7 @@ def compute_indices(dataset):
     red = dataset.read(4).astype(np.float32)    # Band 4 (Red)
     red_edge2 = dataset.read(6).astype(np.float32)  # Band 6 (Red Edge 2)
     nir = dataset.read(8).astype(np.float32)    # Band 8 (NIR)
-    swir1 = dataset.read(10).astype(np.float32) # Band 11 (SWIR1)
+    swir1 = dataset.read(10).astype(np.float32)  # Band 11 (SWIR1)
 
     # NDVI Calculation
     ndvi = (nir - red) / (nir + red + 1e-10)
@@ -39,6 +40,7 @@ def compute_indices(dataset):
 
     return ndvi, ndwi, fdi
 
+
 def process_tif_file(file_path):
     """Process a single .tif file and save the stacked output."""
     output_path = os.path.join(output_folder, os.path.basename(file_path))
@@ -51,7 +53,7 @@ def process_tif_file(file_path):
         stacked_image = np.stack([ndvi, ndwi, fdi])
 
         # Rescale to 0-255 and convert to uint8
-        stacked_rescaled = ((stacked_image - np.min(stacked_image)) / 
+        stacked_rescaled = ((stacked_image - np.min(stacked_image)) /
                             (np.max(stacked_image) - np.min(stacked_image)) * 255).astype(np.uint8)
 
         # Update metadata
@@ -64,6 +66,7 @@ def process_tif_file(file_path):
                 dst.write(stacked_rescaled[i], i + 1)
 
     print(f"✅ Processed and saved: {output_path}")
+
 
 # Iterate through all .tif files in the input folder
 for filename in os.listdir(input_folder):
