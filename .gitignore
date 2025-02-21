@@ -12,6 +12,8 @@ indiced_images
 sentinel
 planet_filtered
 sample_planet_testing
+*cache*
+runs
 
 # Files
 vis_bbox.py
