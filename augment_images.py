@@ -7,13 +7,13 @@ import shutil
 from glob import glob
 from tqdm import tqdm
 
-IMAGES_DIR = "datasets/Planet/dataset_splits/train/images"
-LABELS_DIR = "datasets/Planet/dataset_splits/train/labels"
-AUGMENTED_IMAGES_DIR = "datasets/Planet/dataset_splits/train/augmented_images"
-AUGMENTED_LABELS_DIR = "datasets/Planet/dataset_splits/train/augmented_labels"
+IMAGES_DIR = "datasets/Planet/dataset_splits_new/train/images"
+LABELS_DIR = "datasets/Planet/dataset_splits_new/train/labels"
+AUGMENTED_IMAGES_DIR = "datasets/Planet/dataset_splits_new/train/augmented_images"
+AUGMENTED_LABELS_DIR = "datasets/Planet/dataset_splits_new/train/augmented_labels"
 AUGS_PER_IMAGE = 5
-SEGREGATION_IMAGES_DIR = "datasets/Planet/dataset_splits/train/segregated_images"
-SEGREGATION_LABELS_DIR = "datasets/Planet/dataset_splits/train/segregated_labels"
+SEGREGATION_IMAGES_DIR = "datasets/Planet/dataset_splits_new/train/segregated_images"
+SEGREGATION_LABELS_DIR = "datasets/Planet/dataset_splits_new/train/segregated_labels"
 ATTEMPT_LIMIT = 150
 
 os.makedirs(SEGREGATION_IMAGES_DIR, exist_ok=True)
@@ -70,7 +70,7 @@ def filter_boxes(bboxes: List) -> bool:
         area = width * height
 
         negative_dims = width <= 0 or height <= 0
-        small_area = area < 0.01
+        small_area = area < 0.001
         large_area = area > 0.95
 
         if negative_dims or small_area or large_area:
@@ -125,7 +125,8 @@ def main():
     skipped_images = list()
     for image_path, label_path in zip(all_images, all_labels):
         original_image, _ = get_image(image_path)
-        original_bboxes = filter_boxes(get_boxes(label_path))
+        # original_bboxes = filter_boxes(get_boxes(label_path))
+        original_bboxes = get_boxes(label_path)
 
         if not original_bboxes:
             shutil.move(image_path, SEGREGATION_IMAGES_DIR)
@@ -168,6 +169,7 @@ def main():
 
             if attempts > ATTEMPT_LIMIT:
                 skipped_images.append(image_path)
+                pbar.update(1)
                 break
 
         # if 5 < attempts < 20:

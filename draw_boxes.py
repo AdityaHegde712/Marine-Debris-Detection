@@ -6,6 +6,8 @@ import numpy as np
 from typing import Tuple, List
 from tqdm import tqdm
 
+SPLIT_FOLDER_NAME = "dataset_splits_new"
+
 
 def get_image(image_path: str) -> Tuple[np.ndarray, Tuple[int, int]]:
     """Read image and return the image array along with size tuple.
@@ -21,7 +23,7 @@ def get_image(image_path: str) -> Tuple[np.ndarray, Tuple[int, int]]:
     return image, image.shape
 
 
-def get_boxes(label_path: str, size: Tuple[int, int]) -> List[List[int]]:
+def get_boxes(label_path: str, size: Tuple[int, int] = (256, 256)) -> List[List[int]]:
     with open(label_path, "r") as f:
         lines = f.readlines()
     lines = [[float(j) for j in i.split()[1:]] + ["0"] for i in lines]
@@ -55,7 +57,7 @@ def knitty_gritties():
     if dir_prefix:
         dir_prefix = dir_prefix.rstrip("_") + "_"
 
-    save_dir = f"datasets/Planet/dataset_splits/train/drawn_{dir_prefix}images"
+    save_dir = f"datasets/Planet/{SPLIT_FOLDER_NAME}/train/drawn_{dir_prefix}images"
     shutil.rmtree(save_dir, ignore_errors=True) if os.path.exists(save_dir) else None
     os.makedirs(save_dir, exist_ok=True)
 
@@ -66,8 +68,8 @@ def main():
     save_dir, dir_prefix = knitty_gritties()
     if dir_prefix == "stop":
         return
-    images = glob(f"datasets/Planet/dataset_splits/train/{dir_prefix}images/*.jpg")
-    labels = glob(f"datasets/Planet/dataset_splits/train/{dir_prefix}labels/*.txt")
+    images = glob(f"datasets/Planet/{SPLIT_FOLDER_NAME}/train/{dir_prefix}images/*.jpg")
+    labels = glob(f"datasets/Planet/{SPLIT_FOLDER_NAME}/train/{dir_prefix}labels/*.txt")
 
     pbar = tqdm(total=len(images), desc="Drawing boxes on images")
     for image_path, label_path in zip(images, labels):
