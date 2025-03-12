@@ -13,16 +13,19 @@ planet_filtered*
 sample_planet_testing
 *cache*
 runs
+Reference_Repo
+seg2box
 
 # Files
 vis_bbox.py
 todo.txt
 error_images.txt
 skipped_images.txt
-*.pt
 
 # Extensions to skip
 *.zip
 *.rar
 *.qgz
 *.jpg
+*.pt
+*.tif

@@ -7,13 +7,14 @@ import shutil
 from glob import glob
 from tqdm import tqdm
 
-IMAGES_DIR = "datasets/Planet/dataset_splits_new/train/images"
-LABELS_DIR = "datasets/Planet/dataset_splits_new/train/labels"
-AUGMENTED_IMAGES_DIR = "datasets/Planet/dataset_splits_new/train/augmented_images"
-AUGMENTED_LABELS_DIR = "datasets/Planet/dataset_splits_new/train/augmented_labels"
+subsplit = "test"
+IMAGES_DIR = f"datasets/Planet/dataset_splits_aug/{subsplit}/images"
+LABELS_DIR = f"datasets/Planet/dataset_splits_aug/{subsplit}/labels"
+AUGMENTED_IMAGES_DIR = f"datasets/Planet/dataset_splits_aug/{subsplit}/augmented_images"
+AUGMENTED_LABELS_DIR = f"datasets/Planet/dataset_splits_aug/{subsplit}/augmented_labels"
 AUGS_PER_IMAGE = 5
-SEGREGATION_IMAGES_DIR = "datasets/Planet/dataset_splits_new/train/segregated_images"
-SEGREGATION_LABELS_DIR = "datasets/Planet/dataset_splits_new/train/segregated_labels"
+SEGREGATION_IMAGES_DIR = f"datasets/Planet/dataset_splits_aug/{subsplit}/segregated_images"
+SEGREGATION_LABELS_DIR = f"datasets/Planet/dataset_splits_aug/{subsplit}/segregated_labels"
 ATTEMPT_LIMIT = 150
 
 os.makedirs(SEGREGATION_IMAGES_DIR, exist_ok=True)
