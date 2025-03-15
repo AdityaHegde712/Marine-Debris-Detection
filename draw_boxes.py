@@ -6,6 +6,9 @@ import numpy as np
 from typing import Tuple, List
 from tqdm import tqdm
 
+IMAGES_DIR = "runs/detect/post_process_this"
+LABELS_DIR = "runs/detect/post_process_this/labels_processed"
+SAVE_DIR = "drawn_images"
 SPLIT_FOLDER_NAME = "padding/padded"
 
 
@@ -23,7 +26,7 @@ def get_image(image_path: str) -> Tuple[np.ndarray, Tuple[int, int]]:
     return image, image.shape
 
 
-def get_boxes(label_path: str, size: Tuple[int, int] = (256, 256)) -> List[List[int]]:
+def get_boxes(label_path: str, size: Tuple[int, int] = (256, 256)) -> List[List[float]]:
     with open(label_path, "r") as f:
         lines = f.readlines()
     lines = [[float(j) for j in i.split()[1:]] + ["0"] for i in lines]
@@ -46,25 +49,18 @@ def draw_yolo_boxes(image: np.ndarray, bboxes: List[List[float]]) -> np.ndarray:
         y1 = int((y - h / 2) * image.shape[0])
         x2 = int((x + w / 2) * image.shape[1])
         y2 = int((y + h / 2) * image.shape[0])
-        image = cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        image = cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 1)
     return image
 
 
-def knitty_gritties():
-    dir_prefix = input("Enter the directory prefix: ")
-    if dir_prefix.lower() == "stop":
-        return
-    if dir_prefix:
-        dir_prefix = dir_prefix.rstrip("_") + "_"
-
-    save_dir = f"datasets/Planet/{SPLIT_FOLDER_NAME}/train/drawn_{dir_prefix}images"
-    shutil.rmtree(save_dir, ignore_errors=True) if os.path.exists(save_dir) else None
-    os.makedirs(save_dir, exist_ok=True)
-
-    return save_dir, dir_prefix.lower()
-
-
 def main():
+    shutil.rmtree(SAVE_DIR, ignore_errors=True) if os.path.exists(SAVE_DIR) else None
+    os.makedirs(SAVE_DIR, exist_ok=True)
+
+    images = sorted(glob(os.path.join(IMAGES_DIR, "*.jpg")))
+    labels = sorted(glob(os.path.join(LABELS_DIR, "*.txt")))
+
+    assert len(images) == len(labels), f"Found {len(images)} images, {len(labels)} labels. Number of images and labels do not match."
     save_dir, dir_prefix = knitty_gritties()
     if dir_prefix == "stop":
         return
@@ -77,7 +73,7 @@ def main():
         bboxes = get_boxes(label_path, size)
 
         drawn_image = draw_yolo_boxes(image, bboxes)
-        save_path = os.path.join(save_dir, os.path.basename(image_path))
+        save_path = os.path.join(SAVE_DIR, os.path.basename(image_path))
         cv2.imwrite(save_path, cv2.cvtColor(drawn_image, cv2.COLOR_RGB2BGR))
         pbar.update(1)
 

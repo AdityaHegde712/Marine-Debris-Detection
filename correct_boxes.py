@@ -3,8 +3,8 @@ from glob import glob
 from draw_boxes import get_boxes
 from tqdm import tqdm
 
-LABELS_DIR = "datasets/Planet/dataset_splits_new/test/labels_old"
-TARGET_DIR = "datasets/Planet/dataset_splits_new/test/labels"
+LABELS_DIR = "datasets/Planet/dataset_splits_aug/test/labels_old"
+TARGET_DIR = "datasets/Planet/dataset_splits_aug/test/labels"
 os.makedirs(TARGET_DIR, exist_ok=True)
 
 
