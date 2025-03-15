@@ -237,7 +237,7 @@ def detect_marine_debris(image_path: str):
 
     # Draw merged bounding boxes
     geojson = init_geojson()
-    latlong_boxes = []
+    final_boxes = []
     for i, box in enumerate(merged_boxes):
         x0, y0, x1, y1 = box
 
@@ -253,8 +253,9 @@ def detect_marine_debris(image_path: str):
             y0 = (bounds.top - (y0 / img.height) * latitude_height)
             x1 = (bounds.left + (x1 / img.width) * longitude_width)
             y1 = (bounds.top - (y1 / img.height) * latitude_height)
-            latlong_boxes.append([x0, y0, x1, y1])
+            final_boxes.append([box_properties["box_id"], box_properties["area_m2"], x0, y0, x1, y1])
         else:
+            final_boxes.append([box_properties["box_id"], box_properties["area_m2"], x0, y0, x1, y1])
             y0 = -y0
             y1 = -y1
 
@@ -286,7 +287,7 @@ def detect_marine_debris(image_path: str):
 
     # Encode image as Base64
     img_base64 = base64.b64encode(img_data.getvalue()).decode("utf-8")
-    final_boxes = latlong_boxes if bounds else merged_boxes
+    final_boxes = sorted(final_boxes, key=lambda x: x[1], reverse=True)
 
     return img_base64, final_boxes
 
