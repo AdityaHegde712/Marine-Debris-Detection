@@ -24,6 +24,7 @@ BE/detection_outputs
 BE/json
 BE/uploads
 BE/venv
+seg2box
 
 # Extensions to skip
 *.zip
@@ -32,3 +33,4 @@ BE/venv
 *.jpg
 *.pt
 *.tif
+*.xml
