@@ -1,0 +1,35 @@
+# Folders
+aug
+datasets
+NASA_Planet_Data
+yolo_labels
+dataset_splits
+hist_splits
+yolo-data-augmentation
+Sample_Data
+indiced_images
+sentinel
+planet_filtered*
+sample_planet_testing
+*cache*
+runs
+padding
+
+# Files
+vis_bbox.py
+todo.txt
+error_images.txt
+skipped_images.txt
+BE/uploads
+BE/detection_outputs
+BE/detection_outputs
+BE/json
+BE/venv
+
+# Extensions to skip
+*.zip
+*.rar
+*.qgz
+*.jpg
+*.pt
+*.tif
