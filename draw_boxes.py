@@ -6,7 +6,7 @@ import numpy as np
 from typing import Tuple, List
 from tqdm import tqdm
 
-SPLIT_FOLDER_NAME = "dataset_splits_new"
+SPLIT_FOLDER_NAME = "padding/padded"
 
 
 def get_image(image_path: str) -> Tuple[np.ndarray, Tuple[int, int]]:
@@ -68,8 +68,8 @@ def main():
     save_dir, dir_prefix = knitty_gritties()
     if dir_prefix == "stop":
         return
-    images = glob(f"datasets/Planet/{SPLIT_FOLDER_NAME}/train/{dir_prefix}images/*.jpg")
-    labels = glob(f"datasets/Planet/{SPLIT_FOLDER_NAME}/train/{dir_prefix}labels/*.txt")
+    images = glob(f"{SPLIT_FOLDER_NAME}/train/{dir_prefix}images/*.jpg")
+    labels = glob(f"{SPLIT_FOLDER_NAME}/train/{dir_prefix}labels/*.txt")
 
     pbar = tqdm(total=len(images), desc="Drawing boxes on images")
     for image_path, label_path in zip(images, labels):

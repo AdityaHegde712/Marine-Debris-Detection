@@ -13,6 +13,9 @@ planet_filtered*
 sample_planet_testing
 *cache*
 runs
+padding
+corner_images
+stacked_images
 
 # Files
 vis_bbox.py
