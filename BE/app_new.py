@@ -51,7 +51,7 @@
 #     box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
 
 #     iou = inter_area / float(min(box1_area, box2_area))
-    
+
 #     return iou
 
 # def merge_overlapping_boxes(boxes, iou_threshold=0.4):
@@ -112,7 +112,7 @@
 #         detections.append({
 #             "bbox": [x0, y0, x1, y1],
 #         })
-    
+
 #     # Merge overlapping boxes
 #     # Store bounding boxes in a separate list
 #     bboxes = [d["bbox"] for d in detections]
@@ -139,7 +139,7 @@
 # def detect():
 #     if 'file' not in request.files:
 #         return jsonify({"error": "No file provided"}), 400
-    
+
 #     file = request.files['file']
 #     if file and allowed_file(file.filename):
 #         filename = secure_filename(file.filename)
@@ -165,14 +165,20 @@ import json
 from io import BytesIO
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
-from PIL import Image, ImageDraw
 from ultralytics import YOLO
 from flask_cors import CORS
 import rasterio
 from rasterio.plot import reshape_as_image
+from PIL import Image, ImageDraw
 import numpy as np
-from typing import Dict, Any
 from flask import send_file
+from functions import (
+    allowed_file,
+    increment_path,
+    merge_overlapping_boxes,
+    init_geojson,
+    make_feature
+)
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -182,88 +188,13 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 app.config['JSON_FOLDER'] = 'json/'  # Define a JSON directory
 os.makedirs(app.config['JSON_FOLDER'], exist_ok=True)
 
-model_path = r"ai_models/PLANET.pt" 
+model_path = r"ai_models/PLANET.pt"
 # Load the YOLO model
 model = YOLO(model_path)
 
 
 def make_json_path(x: str) -> str:
     return os.path.join(app.config['JSON_FOLDER'], f"{os.path.splitext(os.path.basename(x))[0]}.geojson")
-
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'jpg', 'jpeg', 'png', 'tif'}
-
-
-def increment_path(path):
-    """Ensure unique inference directory by appending a number if needed."""
-    base_path = path
-    counter = 1
-    while os.path.exists(path):
-        path = f"{base_path}_{counter}"
-        counter += 1
-    return path
-
-
-def remove_nested_boxes(boxes):
-    new_boxes = []
-    for box in boxes:
-        is_nested = False
-        for other_box in boxes:
-            if box != other_box:
-                if (box[0] >= other_box[0] and box[1] >= other_box[1] and
-                        box[2] <= other_box[2] and box[3] <= other_box[3]):
-                    is_nested = True
-                    break
-        if not is_nested:
-            new_boxes.append(box)
-    return new_boxes
-
-
-def min_iou(box1, box2):
-    x1 = max(box1[0], box2[0])
-    y1 = max(box1[1], box2[1])
-    x2 = min(box1[2], box2[2])
-    y2 = min(box1[3], box2[3])
-
-    inter_area = max(0, x2 - x1) * max(0, y2 - y1)
-
-    box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-    box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-
-    iou = inter_area / float(min(box1_area, box2_area))
-
-    return iou
-
-
-def merge_overlapping_boxes(boxes, iou_threshold=0.4):
-    if len(boxes) == 1:
-        return boxes
-    while True:
-        merged = False
-        for idx, box in enumerate(boxes):
-            for other_idx, other_box in enumerate(boxes[idx+1:]):
-                iou = min_iou(box, other_box)
-                if iou == 1:
-                    boxes = remove_nested_boxes(boxes)
-                    merged = True
-                    break
-                if iou > iou_threshold:
-                    new_box = [
-                        min(box[0], other_box[0]),
-                        min(box[1], other_box[1]),
-                        max(box[2], other_box[2]),
-                        max(box[3], other_box[3])
-                    ]
-                    boxes[idx] = new_box
-                    del boxes[idx + 1 + other_idx]
-                    merged = True
-                    break
-            if merged:
-                break
-        if not merged:
-            break
-    return boxes
 
 
 def process_tif(tif_path):
@@ -293,32 +224,6 @@ def process_tif(tif_path):
     except Exception as e:
         print(f"Error processing TIFF file: {e}")
         return None, None  # Explicitly return None for both values
-
-
-def init_geojson() -> Dict[str, Any]:
-    return {
-        "type": "FeatureCollection",
-        "features": []
-    }
-
-
-def make_feature(x0, y0, x1, y1) -> Dict[str, Any]:
-    return {
-        "type": "Feature",
-        "properties": {},
-        "geometry": {
-            "type": "Polygon",
-            "coordinates": [
-                [
-                    [x0, y0],  # Top left
-                    [x1, y0],  # Top right
-                    [x1, y1],  # Bottom right
-                    [x0, y1],  # Bottom left
-                    [x0, y0]  # back to top left
-                ]
-            ]
-        },
-    }
 
 
 def detect_marine_debris(image_path):
@@ -365,9 +270,9 @@ def detect_marine_debris(image_path):
         x0, y0, x1, y1 = box
         if bounds:
             x0_latlong = ((x0 / img.width) * longitude_width + bounds.left)
-            y0_latlong = (bounds.top - (y0 / img.height) * latitude_height )
+            y0_latlong = (bounds.top - (y0 / img.height) * latitude_height)
             x1_latlong = ((x1 / img.width) * longitude_width + bounds.left)
-            y1_latlong = (bounds.top - (y1 / img.height) * latitude_height )
+            y1_latlong = (bounds.top - (y1 / img.height) * latitude_height)
             latlong_boxes.append([x0_latlong, y0_latlong, x1_latlong, y1_latlong])
             geojson["features"].append(make_feature(x0_latlong, y0_latlong, x1_latlong, y1_latlong))
         else:
@@ -391,15 +296,15 @@ def detect_marine_debris(image_path):
     return img_base64, final_boxes
 
 
-
 @app.route('/download_geojson/<filename>', methods=['GET'])
 def download_geojson(filename):
     geojson_path = os.path.join(app.config['JSON_FOLDER'], filename)
-    
+
     if not os.path.exists(geojson_path):
         return jsonify({"error": "GeoJSON file not found"}), 404
 
     return send_file(geojson_path, as_attachment=True, mimetype="application/json")
+
 
 @app.route('/marinedebris/detect', methods=['POST'])
 def detect():
