@@ -22,7 +22,6 @@ error_images.txt
 skipped_images.txt
 BE/uploads
 BE/detection_outputs
-BE/detection_outputs
 BE/json
 BE/venv
 
