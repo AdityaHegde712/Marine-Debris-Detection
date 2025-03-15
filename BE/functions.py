@@ -3,10 +3,10 @@ Util functions for main backend file.
 '''
 
 import os
-from typing import Dict, Any
+from typing import List, Dict, Any
 import rasterio
 from rasterio.plot import reshape_as_image
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
 
@@ -22,6 +22,27 @@ def increment_path(path):
         path = f"{base_path}_{counter}"
         counter += 1
     return path
+
+
+def label_image(draw: ImageDraw, box: List, label: str, font: ImageFont) -> ImageDraw:
+    # Draw label (box ID) at top-right corner with offset
+    offset_x = 2
+    offset_y = -10
+
+    # Get size of the text
+    text_width = draw.textlength(label, font=font)
+    text_height = font.size
+    text_x = min(box[2] + offset_x, draw._image.width - text_width - 3)
+    text_y = max(box[1] + offset_y, 0)
+
+    # Draw filled rectangle as background
+    background_box = [(text_x, text_y), (text_x + text_width + 2, text_y + text_height + 2)]
+    draw.rectangle(background_box, fill="black")
+
+    # Draw text label
+    draw.text((text_x + 1, text_y + 1), label, fill="white", font=font)
+
+    return draw
 
 
 def remove_nested_boxes(boxes):
@@ -115,16 +136,13 @@ def process_tif(tif_path):
     try:
         # Open TIFF using rasterio
         with rasterio.open(tif_path, driver="Gtiff") as dataset:
-            print(f"TIFF metadata: {dataset.meta}")  # Debugging info
-
             # Read the image as an array
             img_array = dataset.read()
-
+            crs, transform = dataset.crs, dataset.transform
             bounds = dataset.bounds
 
             # Reshape to (height, width, channels)
             img_array = reshape_as_image(img_array)
-            print(f"Image shape after reshape: {img_array.shape}")
 
             # Convert to RGB (if more than 3 channels, take the first 3)
             if img_array.shape[-1] > 3:
@@ -133,7 +151,7 @@ def process_tif(tif_path):
             # Convert NumPy array to PIL Image
             img = Image.fromarray(np.uint8(img_array))
 
-            return img, bounds  # Return the processed image and bounds
+            return img, bounds, crs, transform  # Return the processed image and bounds
 
     except Exception as e:
         print(f"Error processing TIFF file: {e}")

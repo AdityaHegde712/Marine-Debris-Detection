@@ -167,15 +167,22 @@ from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 from ultralytics import YOLO
 from flask_cors import CORS
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 from flask import send_file
 from functions import (
     allowed_file,
     merge_overlapping_boxes,
     init_geojson,
     make_feature,
-    process_tif
+    process_tif,
+    label_image
 )
+
+# Load a monospaced font (fallback to default if not available)
+try:
+    font = ImageFont.truetype("DejaVuSansMono.ttf", size=12)
+except Exception:
+    font = ImageFont.load_default()
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -194,18 +201,20 @@ def make_json_path(x: str) -> str:
     return os.path.join(app.config['JSON_FOLDER'], f"{os.path.splitext(os.path.basename(x))[0]}.geojson")
 
 
-def detect_marine_debris(image_path):
+def detect_marine_debris(image_path: str):
     # Run inference
-    results = model(image_path, iou=0.8)
+    results = model(image_path, iou=0.8, verbose=False)
     result = results[0]  # Assume a single result
 
     # Open the original image
     bounds = None
+    # crs = None
+    # transform = None
     if image_path.lower().endswith(".jpg"):
         img = Image.open(image_path).convert("RGB")
         draw = ImageDraw.Draw(img)
     else:
-        img, bounds = process_tif(image_path)
+        img, bounds, _, _ = process_tif(image_path)  # If you wish to save the georeferenced image, replace "_, _" with "crs, transform"
         if img is None:  # Handle failed TIFF processing
             return None, None  # Stop processing if TIFF conversion failed
         draw = ImageDraw.Draw(img)
@@ -229,19 +238,42 @@ def detect_marine_debris(image_path):
     # Draw merged bounding boxes
     geojson = init_geojson()
     latlong_boxes = []
-    for box in merged_boxes:
+    for i, box in enumerate(merged_boxes):
         x0, y0, x1, y1 = box
+
+        # Create properties
+        box_properties = {
+            "area_m2": abs((x1 - x0) * (y1 - y0) * 9),
+            "box_id": chr(97 + i)
+        }
+
+        # Latlong determination
         if bounds:
-            x0_latlong = ((x0 / img.width) * longitude_width + bounds.left)
-            y0_latlong = (bounds.top - (y0 / img.height) * latitude_height)
-            x1_latlong = ((x1 / img.width) * longitude_width + bounds.left)
-            y1_latlong = (bounds.top - (y1 / img.height) * latitude_height)
-            latlong_boxes.append([x0_latlong, y0_latlong, x1_latlong, y1_latlong])
-            geojson["features"].append(make_feature(x0_latlong, y0_latlong, x1_latlong, y1_latlong))
+            x0 = (bounds.left + (x0 / img.width) * longitude_width)
+            y0 = (bounds.top - (y0 / img.height) * latitude_height)
+            x1 = (bounds.left + (x1 / img.width) * longitude_width)
+            y1 = (bounds.top - (y1 / img.height) * latitude_height)
+            latlong_boxes.append([x0, y0, x1, y1])
         else:
-            geojson["features"].append(make_feature(x0, y0, x1, y1))
-        geojson["features"][-1]["properties"]["box_area"] = abs((x1 - x0) * (y1 - y0) * 9)
+            y0 = -y0
+            y1 = -y1
+
+        geojson["features"].append(make_feature(
+                x0=x0,
+                y0=y0,
+                x1=x1,
+                y1=y1,
+                properties=box_properties
+        ))
+
         draw.rectangle(box, outline="red", width=3)
+        draw = label_image(draw, box, box_properties["box_id"], font=font)
+
+    # # Save the image with bounding boxes
+    # if not image_path.lower().endswith(".tif"):
+    #     img.save(make_image_path(image_path))
+    # else:
+    #     save_tif(np.array(img), crs, transform, make_image_path(image_path))
 
     # Save the geojson as image_path.geojson
     with open(make_json_path(image_path), "w") as f:
