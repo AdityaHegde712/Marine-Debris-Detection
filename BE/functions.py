@@ -4,6 +4,10 @@ Util functions for main backend file.
 
 import os
 from typing import Dict, Any
+import rasterio
+from rasterio.plot import reshape_as_image
+from PIL import Image
+import numpy as np
 
 
 def allowed_file(filename):
@@ -88,10 +92,10 @@ def init_geojson() -> Dict[str, Any]:
     }
 
 
-def make_feature(x0, y0, x1, y1) -> Dict[str, Any]:
+def make_feature(x0, y0, x1, y1, properties: Dict = {}) -> Dict[str, Any]:
     return {
         "type": "Feature",
-        "properties": {},
+        "properties": properties,
         "geometry": {
             "type": "Polygon",
             "coordinates": [
@@ -105,3 +109,32 @@ def make_feature(x0, y0, x1, y1) -> Dict[str, Any]:
             ]
         },
     }
+
+
+def process_tif(tif_path):
+    try:
+        # Open TIFF using rasterio
+        with rasterio.open(tif_path, driver="Gtiff") as dataset:
+            print(f"TIFF metadata: {dataset.meta}")  # Debugging info
+
+            # Read the image as an array
+            img_array = dataset.read()
+
+            bounds = dataset.bounds
+
+            # Reshape to (height, width, channels)
+            img_array = reshape_as_image(img_array)
+            print(f"Image shape after reshape: {img_array.shape}")
+
+            # Convert to RGB (if more than 3 channels, take the first 3)
+            if img_array.shape[-1] > 3:
+                img_array = img_array[:, :, :3]  # Keep only the first 3 channels
+
+            # Convert NumPy array to PIL Image
+            img = Image.fromarray(np.uint8(img_array))
+
+            return img, bounds  # Return the processed image and bounds
+
+    except Exception as e:
+        print(f"Error processing TIFF file: {e}")
+        return None, None  # Explicitly return None for both values

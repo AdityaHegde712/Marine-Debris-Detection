@@ -167,17 +167,14 @@ from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 from ultralytics import YOLO
 from flask_cors import CORS
-import rasterio
-from rasterio.plot import reshape_as_image
 from PIL import Image, ImageDraw
-import numpy as np
 from flask import send_file
 from functions import (
     allowed_file,
-    increment_path,
     merge_overlapping_boxes,
     init_geojson,
-    make_feature
+    make_feature,
+    process_tif
 )
 
 app = Flask(__name__)
@@ -188,8 +185,8 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 app.config['JSON_FOLDER'] = 'json/'  # Define a JSON directory
 os.makedirs(app.config['JSON_FOLDER'], exist_ok=True)
 
-model_path = r"ai_models/PLANET.pt"
 # Load the YOLO model
+model_path = r"ai_models/PLANET.pt"
 model = YOLO(model_path)
 
 
@@ -197,41 +194,7 @@ def make_json_path(x: str) -> str:
     return os.path.join(app.config['JSON_FOLDER'], f"{os.path.splitext(os.path.basename(x))[0]}.geojson")
 
 
-def process_tif(tif_path):
-    try:
-        # Open TIFF using rasterio
-        with rasterio.open(tif_path, driver="Gtiff") as dataset:
-            print(f"TIFF metadata: {dataset.meta}")  # Debugging info
-
-            # Read the image as an array
-            img_array = dataset.read()
-
-            bounds = dataset.bounds
-
-            # Reshape to (height, width, channels)
-            img_array = reshape_as_image(img_array)
-            print(f"Image shape after reshape: {img_array.shape}")
-
-            # Convert to RGB (if more than 3 channels, take the first 3)
-            if img_array.shape[-1] > 3:
-                img_array = img_array[:, :, :3]  # Keep only the first 3 channels
-
-            # Convert NumPy array to PIL Image
-            img = Image.fromarray(np.uint8(img_array))
-
-            return img, bounds  # Return the processed image and bounds
-
-    except Exception as e:
-        print(f"Error processing TIFF file: {e}")
-        return None, None  # Explicitly return None for both values
-
-
 def detect_marine_debris(image_path):
-    # Using PLANETSCOPE model
-    inference_dir = r"detection_outputs/inference"
-    inference_dir = increment_path(inference_dir)
-    os.makedirs(inference_dir, exist_ok=True)
-
     # Run inference
     results = model(image_path, iou=0.8)
     result = results[0]  # Assume a single result
