@@ -321,6 +321,7 @@ def detect():
         #     file_path = processed_image # Use converted JPEG for detection
 
         image_base64, detections = detect_marine_debris(file_path)
+        print(detections)
         json_path = make_json_path(file_path)
         os.remove(file_path)  # Cleanup
         print("Existing GeoJSON files:", os.listdir(app.config['JSON_FOLDER']))
