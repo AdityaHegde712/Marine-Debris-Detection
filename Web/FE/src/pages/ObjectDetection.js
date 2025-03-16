@@ -155,6 +155,8 @@ export default function ObjectDetection() {
                   <thead>
                     <tr className="bg-gray-100">
                       <th className="border border-gray-300 px-4 py-2">#</th>
+                      <th className="border border-gray-300 px-4 py-2">ID</th>
+                      <th className="border border-gray-300 px-4 py-2">AREA (M²)</th>
                       <th className="border border-gray-300 px-4 py-2">Top-Left X</th>
                       <th className="border border-gray-300 px-4 py-2">Top-Left Y</th>
                       <th className="border border-gray-300 px-4 py-2">Bottom-Right X</th>
@@ -162,16 +164,23 @@ export default function ObjectDetection() {
                     </tr>
                   </thead>
                   <tbody>
-                    {detections[index].map((box, i) => (
-                      <tr key={i} className="text-center">
-                        <td className="border border-gray-300 px-4 py-2">{i + 1}</td>
-                        <td className="border border-gray-300 px-4 py-2">{box[0]}</td>
-                        <td className="border border-gray-300 px-4 py-2">{box[1]}</td>
-                        <td className="border border-gray-300 px-4 py-2">{box[2]}</td>
-                        <td className="border border-gray-300 px-4 py-2">{box[3]}</td>
-                      </tr>
-                    ))}
-                  </tbody>
+            {detections[index].map((box, i) => {
+              // Ensure box has enough elements before destructuring
+              const [id, area, x0, y0, x1, y1] = box.length >= 6 ? box : [null, null, null, null, null, null];
+
+              return (
+                <tr key={i} className="text-center">
+                  <td className="border border-gray-300 px-4 py-2">{i + 1}</td>
+                  <td className="border border-gray-300 px-4 py-2">{id ?? "N/A"}</td>
+                  <td className="border border-gray-300 px-4 py-2">{area ? area.toFixed(2) : "N/A"}</td>
+                  <td className="border border-gray-300 px-4 py-2">{x0 ?? "N/A"}</td>
+                  <td className="border border-gray-300 px-4 py-2">{y0 ?? "N/A"}</td>
+                  <td className="border border-gray-300 px-4 py-2">{x1 ?? "N/A"}</td>
+                  <td className="border border-gray-300 px-4 py-2">{y1 ?? "N/A"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
                 </table>
               ) : (
                 <p>No marine debris detected.</p>
