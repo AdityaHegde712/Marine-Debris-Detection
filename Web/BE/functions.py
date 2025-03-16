@@ -9,6 +9,14 @@ from rasterio.plot import reshape_as_image
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
+DRIVERS = {
+    "tif": "GTiff",
+    "png": "PNG",
+    "jpg": "JPEG",
+    "jpeg": "JPEG",
+    "tiff": "GTiff"
+}
+
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'jpg', 'jpeg', 'png', 'tif'}
@@ -158,16 +166,16 @@ def process_tif(tif_path):
         return None, None  # Explicitly return None for both values
 
 
-def save_tif(img: np.array, crs, transform, path: str):
+def save_image(img: np.array, path: str, crs=None, transform=None):
     img = np.transpose(img, (2, 0, 1))
-    print(img.shape)
+    count = img.shape[0] if len(img.shape) == 3 else 1
     with rasterio.open(
             path,
             'w',
-            driver='GTiff',
+            driver=DRIVERS[os.path.splitext(path)[1][1:]],
             height=img.shape[1],
             width=img.shape[2],
-            count=3,
+            count=count,
             dtype=img.dtype,
             crs=crs,
             transform=transform,

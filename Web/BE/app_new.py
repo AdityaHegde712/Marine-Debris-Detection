@@ -176,7 +176,7 @@ from functions import (
     init_geojson,
     make_feature,
     process_tif,
-    save_tif,
+    save_image,
     label_image
 )
 
@@ -212,7 +212,6 @@ def detect_marine_debris(image_path: str):
     # Run inference
     results = model(image_path, iou=0.8, verbose=False)
     result = results[0]  # Assume a single result
-    print("Finished inference")
 
     # Open the original image
     bounds = None
@@ -228,7 +227,6 @@ def detect_marine_debris(image_path: str):
         draw = ImageDraw.Draw(img)
         longitude_width = bounds.right - bounds.left
         latitude_height = abs(bounds.top - bounds.bottom)
-    print("Finished opening the original image for drawing")
 
     # Draw bounding boxes
     bboxes = []
@@ -243,7 +241,6 @@ def detect_marine_debris(image_path: str):
 
     # Merge overlapping boxes
     merged_boxes = merge_overlapping_boxes(bboxes)
-    print("Finished box merging")
 
     # Draw merged bounding boxes
     geojson = init_geojson()
@@ -264,7 +261,7 @@ def detect_marine_debris(image_path: str):
             x1 = (bounds.left + (x1 / img.width) * longitude_width)
             y1 = (bounds.top - (y1 / img.height) * latitude_height)
             final_boxes.append([box_properties["box_id"], box_properties["area_m2"], x0, y0, x1, y1])
-        else:  # DEBUG NEEDED FOR THIS ELSE CONDITION
+        else:
             final_boxes.append([box_properties["box_id"], box_properties["area_m2"], x0, y0, x1, y1])
             y0 = -y0
             y1 = -y1
@@ -279,20 +276,13 @@ def detect_marine_debris(image_path: str):
 
         draw.rectangle(box, outline="red", width=3)
         draw = label_image(draw, box, box_properties["box_id"], font=font)
-    print("Finished geojson creation and image drawing")
 
-    # Save the image with bounding boxes
-    if not image_path.lower().endswith(".tif"):
-        img.save(make_image_path(image_path))
-    else:
-        print(crs, transform, sep="\n")
-        save_tif(np.array(img), crs, transform, make_image_path(image_path))
-    print("Saved the tif")
+    # Save image with bounding boxes
+    save_image(np.array(img), make_image_path(image_path), crs, transform)
 
     # Save the geojson as image_path.geojson
     with open(make_json_path(image_path), "w") as f:
         json.dump(geojson, f)
-    print("Saved the geojson")
 
     # Save the annotated image to a buffer
     img_data = BytesIO()
@@ -335,10 +325,10 @@ def detect():
         #     file_path = processed_image # Use converted JPEG for detection
 
         image_base64, detections = detect_marine_debris(file_path)
-        print(detections)
+        # print(detections)
         json_path = make_json_path(file_path)
         os.remove(file_path)  # Cleanup
-        print("Existing GeoJSON files:", os.listdir(app.config['JSON_FOLDER']))
+        # print("Existing GeoJSON files:", os.listdir(app.config['JSON_FOLDER']))
 
         return jsonify({
             "image_base64": image_base64,
