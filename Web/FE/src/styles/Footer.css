@@ -1,0 +1,22 @@
+html, body {
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh; /* Ensures the body takes the full height of the viewport */
+}
+
+main {
+    flex: 1; /* Makes the main content take up remaining space */
+}
+
+footer {
+    background-color: #f8f9fa;
+    padding: 20px;
+    text-align: center;
+    width: 100%;
+    position: relative; /* Ensure it stays within the layout flow */
+}
