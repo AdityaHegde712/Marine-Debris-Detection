@@ -156,3 +156,20 @@ def process_tif(tif_path):
     except Exception as e:
         print(f"Error processing TIFF file: {e}")
         return None, None  # Explicitly return None for both values
+
+
+def save_tif(img: np.array, crs, transform, path: str):
+    img = np.transpose(img, (2, 0, 1))
+    print(img.shape)
+    with rasterio.open(
+            path,
+            'w',
+            driver='GTiff',
+            height=img.shape[1],
+            width=img.shape[2],
+            count=3,
+            dtype=img.dtype,
+            crs=crs,
+            transform=transform,
+    ) as dst:
+        dst.write(img)

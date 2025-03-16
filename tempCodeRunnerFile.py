@@ -38,6 +38,7 @@ def make_image_path(x: str) -> str:
 
 def save_tif(img: np.array, crs, transform, path: str):
     img = np.transpose(img, (2, 0, 1))
+    print(img.shape)
     with rasterio.open(
             path,
             'w',
@@ -109,7 +110,7 @@ def detect_marine_debris(image_path: str):
 
     # Draw merged bounding boxes
     geojson = init_geojson()
-    final_boxes = []
+    latlong_boxes = []
     for i, box in enumerate(merged_boxes):
         x0, y0, x1, y1 = box
 
@@ -125,9 +126,8 @@ def detect_marine_debris(image_path: str):
             y0 = (bounds.top - (y0 / img.height) * latitude_height)
             x1 = (bounds.left + (x1 / img.width) * longitude_width)
             y1 = (bounds.top - (y1 / img.height) * latitude_height)
-            final_boxes.append([box_properties["box_id"], box_properties["area_m2"], x0, y0, x1, y1])
+            latlong_boxes.append([x0, y0, x1, y1])
         else:
-            final_boxes.append([box_properties["box_id"], box_properties["area_m2"], x0, y0, x1, y1])
             y0 = -y0
             y1 = -y1
 
@@ -152,12 +152,9 @@ def detect_marine_debris(image_path: str):
     with open(make_json_path(image_path), "w") as f:
         json.dump(geojson, f)
 
-    final_boxes = sorted(final_boxes, key=lambda x: x[1], reverse=True)
-    print(*final_boxes, sep="\n")
-
 
 if __name__ == "__main__":
     images = glob("./BE/uploads/*")
     for image in images:
         detect_marine_debris(image)
-        print(f"Processed {image}\n")
+        print(f"Processed {image}")

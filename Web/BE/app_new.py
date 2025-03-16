@@ -168,6 +168,7 @@ from werkzeug.utils import secure_filename
 from ultralytics import YOLO
 from flask_cors import CORS
 from PIL import Image, ImageDraw, ImageFont
+import numpy as np
 from flask import send_file
 from functions import (
     allowed_file,
@@ -175,6 +176,7 @@ from functions import (
     init_geojson,
     make_feature,
     process_tif,
+    save_tif,
     label_image
 )
 
@@ -191,7 +193,8 @@ app.config['UPLOAD_FOLDER'] = 'uploads/'  # Define an upload directory
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 app.config['JSON_FOLDER'] = 'json/'  # Define a JSON directory
 os.makedirs(app.config['JSON_FOLDER'], exist_ok=True)
-
+app.config['PROCESSED_FOLDER'] = 'processed/'  # Define a processed directory
+os.makedirs(app.config['PROCESSED_FOLDER'], exist_ok=True)
 # Load the YOLO model
 model_path = r"ai_models/PLANET.pt"
 model = YOLO(model_path)
@@ -201,25 +204,31 @@ def make_json_path(x: str) -> str:
     return os.path.join(app.config['JSON_FOLDER'], f"{os.path.splitext(os.path.basename(x))[0]}.geojson")
 
 
+def make_image_path(x: str) -> str:
+    return os.path.join(app.config['PROCESSED_FOLDER'], os.path.basename(x))
+
+
 def detect_marine_debris(image_path: str):
     # Run inference
     results = model(image_path, iou=0.8, verbose=False)
     result = results[0]  # Assume a single result
+    print("Finished inference")
 
     # Open the original image
     bounds = None
-    # crs = None
-    # transform = None
+    crs = None
+    transform = None
     if image_path.lower().endswith(".jpg"):
         img = Image.open(image_path).convert("RGB")
         draw = ImageDraw.Draw(img)
     else:
-        img, bounds, _, _ = process_tif(image_path)  # If you wish to save the georeferenced image, replace "_, _" with "crs, transform"
+        img, bounds, crs, transform = process_tif(image_path)  # Replace "_, _" with "crs, transform" for georeference
         if img is None:  # Handle failed TIFF processing
             return None, None  # Stop processing if TIFF conversion failed
         draw = ImageDraw.Draw(img)
         longitude_width = bounds.right - bounds.left
         latitude_height = abs(bounds.top - bounds.bottom)
+    print("Finished opening the original image for drawing")
 
     # Draw bounding boxes
     bboxes = []
@@ -234,6 +243,7 @@ def detect_marine_debris(image_path: str):
 
     # Merge overlapping boxes
     merged_boxes = merge_overlapping_boxes(bboxes)
+    print("Finished box merging")
 
     # Draw merged bounding boxes
     geojson = init_geojson()
@@ -254,7 +264,7 @@ def detect_marine_debris(image_path: str):
             x1 = (bounds.left + (x1 / img.width) * longitude_width)
             y1 = (bounds.top - (y1 / img.height) * latitude_height)
             final_boxes.append([box_properties["box_id"], box_properties["area_m2"], x0, y0, x1, y1])
-        else:
+        else:  # DEBUG NEEDED FOR THIS ELSE CONDITION
             final_boxes.append([box_properties["box_id"], box_properties["area_m2"], x0, y0, x1, y1])
             y0 = -y0
             y1 = -y1
@@ -269,16 +279,20 @@ def detect_marine_debris(image_path: str):
 
         draw.rectangle(box, outline="red", width=3)
         draw = label_image(draw, box, box_properties["box_id"], font=font)
+    print("Finished geojson creation and image drawing")
 
-    # # Save the image with bounding boxes
-    # if not image_path.lower().endswith(".tif"):
-    #     img.save(make_image_path(image_path))
-    # else:
-    #     save_tif(np.array(img), crs, transform, make_image_path(image_path))
+    # Save the image with bounding boxes
+    if not image_path.lower().endswith(".tif"):
+        img.save(make_image_path(image_path))
+    else:
+        print(crs, transform, sep="\n")
+        save_tif(np.array(img), crs, transform, make_image_path(image_path))
+    print("Saved the tif")
 
     # Save the geojson as image_path.geojson
     with open(make_json_path(image_path), "w") as f:
         json.dump(geojson, f)
+    print("Saved the geojson")
 
     # Save the annotated image to a buffer
     img_data = BytesIO()
