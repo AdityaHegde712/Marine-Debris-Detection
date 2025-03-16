@@ -20,10 +20,10 @@ vis_bbox.py
 todo.txt
 error_images.txt
 skipped_images.txt
-BE/detection_outputs
-BE/json
-BE/uploads
-BE/venv
+Web/BE/detection_outputs
+Web/BE/json
+Web/BE/uploads
+Web/BE/venv
 seg2box
 
 # Extensions to skip
