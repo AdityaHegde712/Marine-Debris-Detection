@@ -34,3 +34,4 @@ seg2box
 *.pt
 *.tif
 *.xml
+*.png
