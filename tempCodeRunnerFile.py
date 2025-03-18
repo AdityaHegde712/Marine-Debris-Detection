@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 # Define input and output folders
-INPUT_FOLDER = "../datasets/MARIDA_sentinel-2/patches/**/*.tif"
+INPUT_FOLDER = "./datasets/MARIDA_sentinel-2/patches/**/*.tif"
 VISUALS = [i for i in glob(INPUT_FOLDER, recursive=True) if 'conf' not in i and 'cl' not in i]
 OUTPUT_COASTAL = "./masks/coastal"
 OUTPUT_SEA = "./masks/sea"
@@ -58,44 +58,9 @@ def compute_indices(dataset):
     return ndvi, ndwi, fdi
 
 
-def process_tif_file(file_path):
-    """Process a single .tif file and save the stacked output in FDI, NDWI, NDVI order."""
-    coastal_output = os.path.join(OUTPUT_COASTAL, os.path.basename(file_path).replace(".tif", "_0coastal.tif"))
-    sea_debris_output = os.path.join(OUTPUT_SEA, os.path.basename(file_path).replace(".tif", "_1sea_debris.tif"))
-    # merged_output = os.path.join(output_folder, os.path.basename(file_path).replace(".tif", "_2merged.tif"))
-
-    with rasterio.open(file_path) as dataset:
-        # Compute indices
-        ndvi, ndwi, fdi = compute_indices(dataset)
-
-        # Make the mask
-        coastal_mask = ((fdi > 0.1) & (ndwi > 0) & (ndvi < 0)).astype(np.float32)
-        sea_debris_mask = remove_small_objects(((fdi > 0.009) & (fdi < 0.1) &
-                                                (ndwi < 0.35) &
-                                                (ndvi > -0.25)), min_size=2).astype(np.float32)
-        # merged_mask = ((coastal_mask == 1) | (sea_debris_mask == 1)).astype(np.float32)
-
-        # Update metadata (preserve georeferencing)
-        profile = dataset.profile
-        profile.update(dtype=np.float32, count=1)
-
-        # Save the new image
-        with rasterio.open(coastal_output, "w", **profile) as dst:
-            dst.write(coastal_mask, 1)
-        with rasterio.open(sea_debris_output, "w", **profile) as dst:
-            dst.write(sea_debris_mask, 1)
-        # with rasterio.open(merged_output, "w", **profile) as dst:
-        #     dst.write(merged_mask, 1)
-
-    shutil.copy(file_path, OUTPUT_BASE)
-
-
-def process_mask(mask: np.ndarray, bands: int = 1) -> np.ndarray:
-    intermediary_mask = np.where(mask > 0, 255, 0).astype(np.uint8)
-    # If single band, convert to 3 band
-    if bands == 3 and (len(intermediary_mask.shape) == 2 or 1 in intermediary_mask.shape):
-        return np.stack((intermediary_mask,) * 3, axis=-1)
-    return intermediary_mask
+# TO BE DEFINED @Ananya
+def decide_mask(coastal_mask: np.ndarray, sea_mask: np.ndarray) -> np.ndarray:
+    pass
 
 
 def get_bboxes(mask: np.ndarray) -> np.ndarray:
@@ -117,11 +82,61 @@ def get_bboxes(mask: np.ndarray) -> np.ndarray:
 
     # Extract bounding boxes
     bounding_boxes = []
-    for prop in props:
+    for i, prop in enumerate(props):
         ymin, xmin, ymax, xmax = prop.bbox
-        bounding_boxes.append((xmin, ymin, xmax, ymax))
+        area = prop.area
+        bounding_boxes.append([chr(i) + 97, area, xmin, ymin, xmax, ymax])
 
     return bounding_boxes
+
+
+def process_tif_file(file_path):
+    """Process a single .tif file and save the stacked output in FDI, NDWI, NDVI order."""
+    # coastal_output = os.path.join(OUTPUT_COASTAL, os.path.basename(file_path).replace(".tif", "_0coastal.tif"))
+    # sea_debris_output = os.path.join(OUTPUT_SEA, os.path.basename(file_path).replace(".tif", "_1sea_debris.tif"))
+    # merged_output = os.path.join(output_folder, os.path.basename(file_path).replace(".tif", "_2merged.tif"))
+
+    with rasterio.open(file_path) as dataset:
+        # Compute indices
+        ndvi, ndwi, fdi = compute_indices(dataset)
+
+        # Make the mask
+        coastal_mask = make_255(((fdi > 0.1) & (ndwi > 0) & (ndvi < 0))).astype(np.uint8)
+        sea_debris_mask = make_255(
+            remove_small_objects(
+                (
+                    (fdi > 0.009) & (fdi < 0.1) &
+                    (ndwi < 0.35) &
+                    (ndvi > -0.25)
+                ),
+                min_size=2
+            )
+        ).astype(np.uint8)
+
+        # Update metadata (preserve georeferencing)
+        profile = dataset.profile
+        profile.update(dtype=np.uint8, count=1)
+
+        # # Save the new image
+        # with rasterio.open(coastal_output, "w", **profile) as dst:
+        #     dst.write(coastal_mask, 1)
+        # with rasterio.open(sea_debris_output, "w", **profile) as dst:
+        #     dst.write(sea_debris_mask, 1)
+        # return None
+        # with rasterio.open(merged_output, "w", **profile) as dst:
+        #     dst.write(merged_mask, 1)
+
+        # Decide mask to use
+        final_mask = sea_debris_mask
+        final_mask = coastal_mask  # Replace with a function call that decides
+
+        # Get bounding boxes
+        bboxes = get_bboxes(final_mask)
+        if not bboxes:
+            return
+        print(*bboxes, sep="\n", end=f"\n{len(bboxes)}\n")
+
+    shutil.copy(file_path, OUTPUT_BASE)
 
 
 def side_by_side(image_set_1, image_set_2):
