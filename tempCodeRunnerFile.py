@@ -160,10 +160,11 @@ def process_tif_file(file_path):
         # Get bounding boxes
         bboxes = get_bboxes(final_mask)
         if not bboxes:
-            return
+            return None, final_mask
         # print(*bboxes, sep="\n", end=f"\n{len(bboxes)}\n")
 
     shutil.copy(file_path, OUTPUT_BASE)
+    return bboxes, final_mask
 
 def draw_yolo_boxes(image: np.ndarray, bboxes: List[List[float]]) -> np.ndarray:
     """Function to draw YOLO boxes on the image.
@@ -175,9 +176,14 @@ def draw_yolo_boxes(image: np.ndarray, bboxes: List[List[float]]) -> np.ndarray:
     Returns:
         np.ndarray: Image array with boxes drawn.
     """
+    if image.shape[0] == 1:
+        image = np.stack((image[0],) * 3, axis=-1)
+    if len(image.shape) == 2:
+        image = np.stack((image,) * 3, axis=-1)
     for bbox in bboxes:
         _, _, x1, y1, x2, y2 = bbox
         image = cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 1)
+        
     return image
 
 
@@ -216,16 +222,15 @@ def main():
     # Iterate through all .tif files in the input folder
     for filename in tqdm(VISUALS[:100]):
         if filename.endswith(".tif"):
-            process_tif_file(filename)
+            bboxes, mask = process_tif_file(filename)
 
-    # Generate images using draw_yolo_boxes
-    output_images = draw_yolo_boxes("masks/output")
+            output_image = draw_yolo_boxes(mask, bboxes)
+        output_image = np.moveaxis(output_image, 2, 0)
+        count, height, width = output_image.shape
+        print(output_image.shape)
+        with rasterio.open(os.path.join(output_dir, os.path.basename(filename)), mode='w', driver="Gtiff", count=count, width=width, height=height, dtype=np.uint8) as dst:
+            dst.write(output_image )
 
-    # Save each image
-    for i, image in enumerate(output_images):
-        filepath = os.path.join(output_dir, f"image_{i}.png")
-        cv2.imwrite(filepath, image)  # Save image using OpenCV
-        print(f"Saved: {filepath}")
     print("🎉 All files processed successfully!")
 
 
