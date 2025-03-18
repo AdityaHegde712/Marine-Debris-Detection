@@ -13,14 +13,16 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 # Define input and output folders
-INPUT_FOLDER = "./datasets/MARIDA_sentinel-2/patches/**/*.tif"
+INPUT_FOLDER = "Test_small/**/*.tif"
 VISUALS = [i for i in glob(INPUT_FOLDER, recursive=True) if 'conf' not in i and 'cl' not in i]
 OUTPUT_COASTAL = "./masks/coastal"
 OUTPUT_SEA = "./masks/sea"
 OUTPUT_BASE = "./masks/base"
+OUTPUT_FINAL = "./masks/output"
 os.makedirs(OUTPUT_COASTAL, exist_ok=True)
 os.makedirs(OUTPUT_SEA, exist_ok=True)
 os.makedirs(OUTPUT_BASE, exist_ok=True)
+os.makedirs(OUTPUT_FINAL, exist_ok=True)
 
 # Sentinel-2 Band Wavelengths (in nm)
 WAVELENGTHS = {
@@ -60,7 +62,31 @@ def compute_indices(dataset):
 
 # TO BE DEFINED @Ananya
 def decide_mask(coastal_mask: np.ndarray, sea_mask: np.ndarray) -> np.ndarray:
-    pass
+    """
+    Decide which mask to use based on pixel coverage.
+    If a mask covers between 20% and 60% of the image, return that mask.
+    If both meet the criteria, return the one with the higher coverage.
+    If neither meets the criteria, return an empty mask.
+    """
+    def coverage(mask: np.ndarray) -> float:
+        return np.sum(mask > 0) / mask.size  # Ratio of nonzero pixels to total pixels
+    
+    coastal_coverage = coverage(coastal_mask)
+    print(coastal_coverage)
+    sea_coverage = coverage(sea_mask)
+    print(sea_coverage)
+    
+    valid_coastal = 0 < coastal_coverage <= 0.6
+    valid_sea = 0 < sea_coverage <= 0.6
+    
+    if valid_coastal and valid_sea:
+        return coastal_mask if coastal_coverage < sea_coverage else sea_mask
+    elif valid_coastal:
+        return coastal_mask
+    elif valid_sea:
+        return sea_mask
+    
+    return np.zeros_like(coastal_mask)
 
 
 def get_bboxes(mask: np.ndarray) -> np.ndarray:
@@ -85,16 +111,16 @@ def get_bboxes(mask: np.ndarray) -> np.ndarray:
     for i, prop in enumerate(props):
         ymin, xmin, ymax, xmax = prop.bbox
         area = prop.area
-        bounding_boxes.append([chr(i) + 97, area, xmin, ymin, xmax, ymax])
+        bounding_boxes.append([chr(i + 97), area, xmin, ymin, xmax, ymax])
 
     return bounding_boxes
 
 
 def process_tif_file(file_path):
     """Process a single .tif file and save the stacked output in FDI, NDWI, NDVI order."""
-    # coastal_output = os.path.join(OUTPUT_COASTAL, os.path.basename(file_path).replace(".tif", "_0coastal.tif"))
-    # sea_debris_output = os.path.join(OUTPUT_SEA, os.path.basename(file_path).replace(".tif", "_1sea_debris.tif"))
-    # merged_output = os.path.join(output_folder, os.path.basename(file_path).replace(".tif", "_2merged.tif"))
+    coastal_output = os.path.join(OUTPUT_COASTAL, os.path.basename(file_path).replace(".tif", "_0coastal.tif"))
+    sea_debris_output = os.path.join(OUTPUT_SEA, os.path.basename(file_path).replace(".tif", "_1sea_debris.tif"))
+    merged_output = os.path.join(OUTPUT_FINAL, os.path.basename(file_path).replace(".tif", "_2merged.tif"))
 
     with rasterio.open(file_path) as dataset:
         # Compute indices
@@ -117,24 +143,21 @@ def process_tif_file(file_path):
         profile = dataset.profile
         profile.update(dtype=np.uint8, count=1)
 
-        # # Save the new image
-        # with rasterio.open(coastal_output, "w", **profile) as dst:
-        #     dst.write(coastal_mask, 1)
-        # with rasterio.open(sea_debris_output, "w", **profile) as dst:
-        #     dst.write(sea_debris_mask, 1)
-        # return None
-        # with rasterio.open(merged_output, "w", **profile) as dst:
-        #     dst.write(merged_mask, 1)
+        # Save the new image
+        with rasterio.open(coastal_output, "w", **profile) as dst:
+            dst.write(coastal_mask, 1)
+        with rasterio.open(sea_debris_output, "w", **profile) as dst:
+            dst.write(sea_debris_mask, 1)
 
         # Decide mask to use
-        final_mask = sea_debris_mask
-        final_mask = coastal_mask  # Replace with a function call that decides
-
+        final_mask = decide_mask(coastal_mask, sea_debris_mask)
+        with rasterio.open(merged_output, "w", **profile) as dst:
+            dst.write(final_mask, 1)
         # Get bounding boxes
         bboxes = get_bboxes(final_mask)
         if not bboxes:
             return
-        print(*bboxes, sep="\n", end=f"\n{len(bboxes)}\n")
+        # print(*bboxes, sep="\n", end=f"\n{len(bboxes)}\n")
 
     shutil.copy(file_path, OUTPUT_BASE)
 

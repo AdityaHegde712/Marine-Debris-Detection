@@ -14,6 +14,9 @@ sample_planet_testing
 *cache*
 runs
 padding
+Test_small
+masks
+corner_images
 
 # Files
 vis_bbox.py
