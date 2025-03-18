@@ -4,6 +4,7 @@ As the name implies, a test file to run scripts. Has no importance in the applic
 import os
 import shutil
 from glob import glob
+from typing import List
 import rasterio
 import numpy as np
 from skimage.measure import label, regionprops
@@ -74,23 +75,44 @@ def decide_mask(coastal_mask: np.ndarray, sea_mask: np.ndarray) -> np.ndarray:
     """
     def coverage(mask: np.ndarray) -> float:
         return np.sum(mask > 0) / mask.size  # Ratio of nonzero pixels to total pixels
-    
+
     coastal_coverage = coverage(coastal_mask)
     print(coastal_coverage)
     sea_coverage = coverage(sea_mask)
     print(sea_coverage)
-    
+
     valid_coastal = 0 < coastal_coverage <= 0.6
     valid_sea = 0 < sea_coverage <= 0.6
-    
+
     if valid_coastal and valid_sea:
         return coastal_mask if coastal_coverage < sea_coverage else sea_mask
     elif valid_coastal:
         return coastal_mask
     elif valid_sea:
         return sea_mask
-    
+
     return np.zeros_like(coastal_mask)
+
+
+def handle_clusters(mask: np.ndarray, cluster_boxes: List) -> List:
+    """Handles clusters. Uses a sliding window approach sized at 1/64th of image area (x_step, y_step as defined below),
+    and then iterates though each section, merging clusters into one box according to the sector they're in.
+
+    Args:
+        mask (np.ndarray): The mask on which the boxes are drawn.
+        cluster_boxes (List): List of cluster boxes with super small area.
+
+    Returns:
+        List: List of new cluster boxes that group the smaller ones.
+    """
+
+    x_step = mask.shape[0] // 8
+    y_step = mask.shape[1] // 8
+
+    for i in range(7):
+        for j in range(7):
+            image_section = mask[x_step * i:x_step * (i + 1), y_step * j:y_step * (j + 1)]
+            # IMPLEMENT THE REST OF THE LOGIC HERE
 
 
 def get_bboxes(mask: np.ndarray) -> np.ndarray:
@@ -112,10 +134,20 @@ def get_bboxes(mask: np.ndarray) -> np.ndarray:
 
     # Extract bounding boxes
     bounding_boxes = []
+    cluster_boxes = []
     for i, prop in enumerate(props):
         ymin, xmin, ymax, xmax = prop.bbox
         area = prop.area
-        bounding_boxes.append([chr(i + 97), area, xmin, ymin, xmax, ymax])
+        if area < 4:
+            # Assign this section of mask to black
+            mask[ymin:ymax, xmin:xmax] = 0
+        else:
+            if area < 20:
+                cluster_boxes.append([chr(i + 97), area, xmin, ymin, xmax, ymax])
+            else:
+                bounding_boxes.append([chr(i + 97), area, xmin, ymin, xmax, ymax])
+
+    cluster_boxes = handle_clusters(mask, cluster_boxes)
 
     return bounding_boxes
 
@@ -166,6 +198,7 @@ def process_tif_file(file_path):
     shutil.copy(file_path, OUTPUT_BASE)
     return bboxes, final_mask
 
+
 def draw_yolo_boxes(image: np.ndarray, bboxes: List[List[float]]) -> np.ndarray:
     """Function to draw YOLO boxes on the image.
 
@@ -183,20 +216,9 @@ def draw_yolo_boxes(image: np.ndarray, bboxes: List[List[float]]) -> np.ndarray:
     for bbox in bboxes:
         _, _, x1, y1, x2, y2 = bbox
         image = cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 1)
-        
+
     return image
 
-
-# for image, bboxes in zip(new_images, new_bbox_set):
-#     if image.shape[0] == 1:
-#         image = np.stack((image[0],) * 3, axis=-1)
-#     if len(image.shape) == 2:
-#         image = np.stack((image,) * 3, axis=-1)
-#     plt.figure(figsize=(10, 10))
-#     print(f"Clumpy area: {bboxes[-1][1]}")
-#     plt.imshow(draw_yolo_boxes(image, bboxes[:-1]))
-#     plt.axis("off")
-#     plt.show()
 
 def side_by_side(image_set_1, image_set_2):
     for image1, image2 in zip(image_set_1, image_set_2):
@@ -225,11 +247,11 @@ def main():
             bboxes, mask = process_tif_file(filename)
 
             output_image = draw_yolo_boxes(mask, bboxes)
+
         output_image = np.moveaxis(output_image, 2, 0)
         count, height, width = output_image.shape
-        print(output_image.shape)
         with rasterio.open(os.path.join(output_dir, os.path.basename(filename)), mode='w', driver="Gtiff", count=count, width=width, height=height, dtype=np.uint8) as dst:
-            dst.write(output_image )
+            dst.write(output_image)
 
     print("🎉 All files processed successfully!")
 
