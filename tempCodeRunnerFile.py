@@ -13,10 +13,9 @@ import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import cv2
-from typing import List
 
 # Define input and output folders
-INPUT_FOLDER = "Test_small/**/*.tif"
+INPUT_FOLDER = "test_images/**/*.tif"
 VISUALS = [i for i in glob(INPUT_FOLDER, recursive=True) if 'conf' not in i and 'cl' not in i]
 OUTPUT_COASTAL = "./masks/coastal"
 OUTPUT_SEA = "./masks/sea"
@@ -95,24 +94,62 @@ def decide_mask(coastal_mask: np.ndarray, sea_mask: np.ndarray) -> np.ndarray:
 
 
 def handle_clusters(mask: np.ndarray, cluster_boxes: List) -> List:
-    """Handles clusters. Uses a sliding window approach sized at 1/64th of image area (x_step, y_step as defined below),
-    and then iterates though each section, merging clusters into one box according to the sector they're in.
+    """
+    Handles clusters. Uses a sliding window approach sized at 1/64th of image area (x_step, y_step),
+    and merges small cluster boxes into one box per window sector if they fall inside it.
 
     Args:
         mask (np.ndarray): The mask on which the boxes are drawn.
-        cluster_boxes (List): List of cluster boxes with super small area.
+        cluster_boxes (List): List of cluster boxes, each in format [box_id, area_m2, x0, y0, x1, y1].
 
     Returns:
-        List: List of new cluster boxes that group the smaller ones.
+        List: List of merged cluster boxes in the same format.
     """
+    merged_cluster_boxes = []
+    x_step = mask.shape[1] // 8
+    y_step = mask.shape[0] // 8
 
-    x_step = mask.shape[0] // 8
-    y_step = mask.shape[1] // 8
+    current_id = min([ord(box[0]) for box in cluster_boxes]) - 97
 
-    for i in range(7):
-        for j in range(7):
-            image_section = mask[x_step * i:x_step * (i + 1), y_step * j:y_step * (j + 1)]
-            # IMPLEMENT THE REST OF THE LOGIC HERE
+    for i in range(8):  # 8 vertical steps
+        for j in range(8):  # 8 horizontal steps
+            x_start = x_step * j
+            x_end = x_step * (j + 1)
+            y_start = y_step * i
+            y_end = y_step * (i + 1)
+
+            boxes_in_window = []
+            for box in cluster_boxes:
+                _, _, x0, y0, x1, y1 = box
+                # Compute center of the box
+                center_x = (x0 + x1) // 2
+                center_y = (y0 + y1) // 2
+
+                if x_start <= center_x < x_end and y_start <= center_y < y_end:
+                    boxes_in_window.append(box)
+
+            if boxes_in_window:
+                # Merge all these boxes into one
+                all_x0 = [b[2] for b in boxes_in_window]
+                all_y0 = [b[3] for b in boxes_in_window]
+                all_x1 = [b[4] for b in boxes_in_window]
+                all_y1 = [b[5] for b in boxes_in_window]
+
+                merged_x0 = min(all_x0)
+                merged_y0 = min(all_y0)
+                merged_x1 = max(all_x1)
+                merged_y1 = max(all_y1)
+
+                # Sum the areas of merged boxes
+                total_area = sum(b[1] for b in boxes_in_window)
+
+                merged_box = [chr(current_id + 97), total_area, merged_x0, merged_y0, merged_x1, merged_y1]
+                merged_cluster_boxes.append(merged_box)
+                # Remove the merged boxes from the original list
+                cluster_boxes = [b for b in cluster_boxes if b not in boxes_in_window]
+                current_id += 1
+
+    return merged_cluster_boxes
 
 
 def get_bboxes(mask: np.ndarray) -> np.ndarray:
@@ -142,12 +179,14 @@ def get_bboxes(mask: np.ndarray) -> np.ndarray:
             # Assign this section of mask to black
             mask[ymin:ymax, xmin:xmax] = 0
         else:
-            if area < 20:
+            if area < 10:
                 cluster_boxes.append([chr(i + 97), area, xmin, ymin, xmax, ymax])
             else:
                 bounding_boxes.append([chr(i + 97), area, xmin, ymin, xmax, ymax])
 
-    cluster_boxes = handle_clusters(mask, cluster_boxes)
+    if cluster_boxes:
+        cluster_boxes = handle_clusters(mask, cluster_boxes)
+        bounding_boxes.extend(cluster_boxes)
 
     return bounding_boxes
 
