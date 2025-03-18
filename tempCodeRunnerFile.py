@@ -11,6 +11,8 @@ from skimage.morphology import remove_small_objects
 import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import cv2
+from typing import List
 
 # Define input and output folders
 INPUT_FOLDER = "Test_small/**/*.tif"
@@ -23,6 +25,8 @@ os.makedirs(OUTPUT_COASTAL, exist_ok=True)
 os.makedirs(OUTPUT_SEA, exist_ok=True)
 os.makedirs(OUTPUT_BASE, exist_ok=True)
 os.makedirs(OUTPUT_FINAL, exist_ok=True)
+output_dir = "masks/boxes"
+os.makedirs(output_dir, exist_ok=True)  # Create directory if it doesn't exist
 
 # Sentinel-2 Band Wavelengths (in nm)
 WAVELENGTHS = {
@@ -161,6 +165,32 @@ def process_tif_file(file_path):
 
     shutil.copy(file_path, OUTPUT_BASE)
 
+def draw_yolo_boxes(image: np.ndarray, bboxes: List[List[float]]) -> np.ndarray:
+    """Function to draw YOLO boxes on the image.
+
+    Args:
+        image (np.ndarray): Image array.
+        bboxes (List[List[int]]): List of lists containing bboxes and class name.
+
+    Returns:
+        np.ndarray: Image array with boxes drawn.
+    """
+    for bbox in bboxes:
+        _, _, x1, y1, x2, y2 = bbox
+        image = cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 1)
+    return image
+
+
+# for image, bboxes in zip(new_images, new_bbox_set):
+#     if image.shape[0] == 1:
+#         image = np.stack((image[0],) * 3, axis=-1)
+#     if len(image.shape) == 2:
+#         image = np.stack((image,) * 3, axis=-1)
+#     plt.figure(figsize=(10, 10))
+#     print(f"Clumpy area: {bboxes[-1][1]}")
+#     plt.imshow(draw_yolo_boxes(image, bboxes[:-1]))
+#     plt.axis("off")
+#     plt.show()
 
 def side_by_side(image_set_1, image_set_2):
     for image1, image2 in zip(image_set_1, image_set_2):
@@ -188,6 +218,14 @@ def main():
         if filename.endswith(".tif"):
             process_tif_file(filename)
 
+    # Generate images using draw_yolo_boxes
+    output_images = draw_yolo_boxes("masks/output")
+
+    # Save each image
+    for i, image in enumerate(output_images):
+        filepath = os.path.join(output_dir, f"image_{i}.png")
+        cv2.imwrite(filepath, image)  # Save image using OpenCV
+        print(f"Saved: {filepath}")
     print("🎉 All files processed successfully!")
 
 
