@@ -1,168 +1,13 @@
-# import os
-# import base64
-# from io import BytesIO
-# from flask import Flask, request, jsonify
-# from werkzeug.utils import secure_filename
-# from PIL import Image, ImageDraw
-# from ultralytics import YOLO
-# from flask_cors import CORS
-
-# app = Flask(__name__)
-# CORS(app)  # Enable CORS for all routes
-
-# app.config['UPLOAD_FOLDER'] = 'uploads/'  # Define an upload directory
-# os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-# def allowed_file(filename):
-#     return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'jpg', 'jpeg', 'png', '.tif'}
-
-# def increment_path(path):
-#     """Ensure unique inference directory by appending a number if needed."""
-#     base_path = path
-#     counter = 1
-#     while os.path.exists(path):
-#         path = f"{base_path}_{counter}"
-#         counter += 1
-#     return path
-
-# def remove_nested_boxes(boxes):
-#     new_boxes = []
-#     for box in boxes:
-#         is_nested = False
-#         for other_box in boxes:
-#             if box != other_box:
-#                 if (box[0] >= other_box[0] and box[1] >= other_box[1] and
-#                         box[2] <= other_box[2] and box[3] <= other_box[3]):
-#                     is_nested = True
-#                     break
-#         if not is_nested:
-#             new_boxes.append(box)
-#     return new_boxes
-
-# def min_iou(box1, box2):
-#     x1 = max(box1[0], box2[0])
-#     y1 = max(box1[1], box2[1])
-#     x2 = min(box1[2], box2[2])
-#     y2 = min(box1[3], box2[3])
-
-#     inter_area = max(0, x2 - x1) * max(0, y2 - y1)
-
-#     box1_area = (box1[2] - box1[0]) * (box1[3] - box1[1])
-#     box2_area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-
-#     iou = inter_area / float(min(box1_area, box2_area))
-
-#     return iou
-
-# def merge_overlapping_boxes(boxes, iou_threshold=0.4):
-#     if len(boxes) == 1:
-#         return boxes
-
-#     while True:
-#         merged = False
-#         for idx, box in enumerate(boxes):
-#             for other_idx, other_box in enumerate(boxes[idx+1:]):
-#                 iou = min_iou(box, other_box)
-#                 if iou == 1:
-#                     boxes = remove_nested_boxes(boxes)
-#                     merged = True
-#                     break
-#                 if iou > iou_threshold:
-#                     new_box = [
-#                         min(box[0], other_box[0]),
-#                         min(box[1], other_box[1]),
-#                         max(box[2], other_box[2]),
-#                         max(box[3], other_box[3])
-#                     ]
-#                     boxes[idx] = new_box
-#                     del boxes[idx + 1 + other_idx]
-#                     merged = True
-#                     break
-#             if merged:
-#                 break
-#         if not merged:
-#             break
-#     return boxes
-
-# def detect_marine_debris(image_path):
-#     model_path = r"ai_models/PLANET.pt"  # Using PLANETSCOPE model
-#     inference_dir = r"detection_outputs/inference"
-#     inference_dir = increment_path(inference_dir)
-#     os.makedirs(inference_dir, exist_ok=True)
-
-#     # Load the YOLO model
-#     model = YOLO(model_path)
-
-#     # Run inference
-#     results = model(image_path, iou=0.6)
-#     result = results[0]  # Assume a single result
-
-#     # Open the original image
-#     img = Image.open(image_path).convert("RGB")
-#     draw = ImageDraw.Draw(img)
-
-#     # Draw bounding boxes
-#     detections = []
-#     for box in result.boxes.xywh.tolist():
-#         x_center, y_center, width, height = box
-#         x0 = int(x_center - width / 2)
-#         y0 = int(y_center - height / 2)
-#         x1 = int(x_center + width / 2)
-#         y1 = int(y_center + height / 2)
-#         detections.append({
-#             "bbox": [x0, y0, x1, y1],
-#         })
-
-#     # Merge overlapping boxes
-#     # Store bounding boxes in a separate list
-#     bboxes = [d["bbox"] for d in detections]
-
-#     # Merge overlapping boxes
-#     merged_boxes = merge_overlapping_boxes(bboxes)
-
-#     # Draw merged bounding boxes
-#     for box in merged_boxes:
-#         draw.rectangle(box, outline="red", width=3)
 
 
-#     # Save the annotated image to a buffer
-#     img_data = BytesIO()
-#     img.save(img_data, format="JPEG")
-#     img_data.seek(0)
-
-#     # Encode image as Base64
-#     img_base64 = base64.b64encode(img_data.getvalue()).decode("utf-8")
-
-#     return img_base64, merged_boxes
-
-# @app.route('/marinedebris/detect', methods=['POST'])
-# def detect():
-#     if 'file' not in request.files:
-#         return jsonify({"error": "No file provided"}), 400
-
-#     file = request.files['file']
-#     if file and allowed_file(file.filename):
-#         filename = secure_filename(file.filename)
-#         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-#         file.save(file_path)
-
-#         image_base64, detections = detect_marine_debris(file_path)
-#         os.remove(file_path)  # Cleanup
-
-#         return jsonify({
-#             "image_base64": image_base64,
-#             "detections": detections
-#         })
-
-#     return jsonify({"error": "Invalid file type"}), 400
-
-# if __name__ == '__main__':
-#     app.run(debug=True)
-
+from glob import glob
 import os
 import base64
 import json
 from io import BytesIO
+
+import rasterio
+from tqdm import tqdm
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 from ultralytics import YOLO
@@ -170,7 +15,7 @@ from flask_cors import CORS
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 from flask import send_file
-from functions import (
+from planet_functions import (
     allowed_file,
     merge_overlapping_boxes,
     init_geojson,
@@ -180,6 +25,8 @@ from functions import (
     label_image
 )
 
+from sentinel_functions import (process_tif_file, draw_yolo_boxes, make_uint8)
+
 # Load a monospaced font (fallback to default if not available)
 try:
     font = ImageFont.truetype("DejaVuSansMono.ttf", size=12)
@@ -188,6 +35,10 @@ except Exception:
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
+
+#----------------------------------------------------------------------------------------------
+
+# FOR PLANETSCOPE DATA
 
 app.config['UPLOAD_FOLDER'] = 'uploads/'  # Define an upload directory
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -338,6 +189,70 @@ def detect():
 
     return jsonify({"error": "Invalid file type"}), 400
 
+# ----------------------------------------------------------------------------------
+
+# FOR SENTINEL DATA
+
+app.config['SENTINEL_UPLOAD_FOLDER'] = 'sentinel_uploads/'  # Define an upload directory
+os.makedirs(app.config['SENTINEL_UPLOAD_FOLDER'], exist_ok=True)
+app.config['SENTINEL_JSON_FOLDER'] = 'sentinel_json/'  # Define a JSON directory
+os.makedirs(app.config['SENTINEL_JSON_FOLDER'], exist_ok=True)
+app.config['SENTINEL_PROCESSED_FOLDER'] = 'sentinel_processed/'  # Define a processed directory
+os.makedirs(app.config['SENTINEL_PROCESSED_FOLDER'], exist_ok=True)
+VISUALS = [i for i in glob(app.config['SENTINEL_UPLOAD_FOLDER'], recursive=True) if 'conf' not in i and 'cl' not in i] 
+
+@app.route('/sentinel', methods=['POST'])
+def sentinel():
+    print("Received request at /sentinel")
+    
+    if 'file' not in request.files:
+        print("No file provided in request")
+        return jsonify({"error": "No file provided"}), 400
+    
+    file = request.files['file']
+    print(f"Received file: {file.filename}")
+
+    if not file.filename.endswith(".tif"):
+        print("Invalid file type, only .tif allowed")
+        return jsonify({"error": "Invalid file type"}), 400
+
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config['SENTINEL_UPLOAD_FOLDER'], filename)
+    file.save(file_path)
+
+    print(f"Saved file to {file_path}")
+
+    # Process file
+    bboxes, image, profile = process_tif_file(file_path)
+    # print image.shape
+    print(type(image))
+    # print(image.shape)
+    image = make_uint8(image)
+    # change 3, 256, 256 to 256, 256, 3
+    image = image.transpose((1, 2, 0)).copy() 
+    print(image.shape)
+    output_image = draw_yolo_boxes(image, bboxes)
+    output_image = np.moveaxis(output_image, 2, 0)
+
+    processed_path = os.path.join(app.config['SENTINEL_PROCESSED_FOLDER'], filename)
+    with rasterio.open(processed_path, mode='w', **profile) as dst:
+        dst.write(output_image)
+
+    img_data = BytesIO()
+    # output_image.save(img_data, format="JPEG")
+    Image.fromarray(output_image).save(img_data, format="JPEG")
+    img_data.seek(0)
+
+    # Encode image as Base64
+    img_base64 = base64.b64encode(img_data.getvalue()).decode("utf-8")
+    final_boxes = sorted(bboxes, key=lambda x: x[1], reverse=True)
+
+    response = {
+        'bboxes': final_boxes,
+        'image': img_base64,
+    }
+    
+    return jsonify(response)
 
 if __name__ == '__main__':
     app.run(debug=True)
