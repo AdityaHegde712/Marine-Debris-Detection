@@ -13,6 +13,7 @@ import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import cv2
+from Web.BE.sentinel_functions import merge_overlapping_boxes
 
 # Define input and output folders
 INPUT_FOLDER = "test_images/**/*.tif"
@@ -76,9 +77,7 @@ def decide_mask(coastal_mask: np.ndarray, sea_mask: np.ndarray) -> np.ndarray:
         return np.sum(mask > 0) / mask.size  # Ratio of nonzero pixels to total pixels
 
     coastal_coverage = coverage(coastal_mask)
-    print(coastal_coverage)
     sea_coverage = coverage(sea_mask)
-    print(sea_coverage)
 
     valid_coastal = 0 < coastal_coverage <= 0.6
     valid_sea = 0 < sea_coverage <= 0.6
@@ -109,8 +108,6 @@ def handle_clusters(mask: np.ndarray, cluster_boxes: List) -> List:
     x_step = mask.shape[1] // 8
     y_step = mask.shape[0] // 8
 
-    current_id = min([ord(box[0]) for box in cluster_boxes]) - 97
-
     for i in range(8):  # 8 vertical steps
         for j in range(8):  # 8 horizontal steps
             x_start = x_step * j
@@ -120,7 +117,7 @@ def handle_clusters(mask: np.ndarray, cluster_boxes: List) -> List:
 
             boxes_in_window = []
             for box in cluster_boxes:
-                _, _, x0, y0, x1, y1 = box
+                x0, y0, x1, y1 = box
                 # Compute center of the box
                 center_x = (x0 + x1) // 2
                 center_y = (y0 + y1) // 2
@@ -130,26 +127,33 @@ def handle_clusters(mask: np.ndarray, cluster_boxes: List) -> List:
 
             if boxes_in_window:
                 # Merge all these boxes into one
-                all_x0 = [b[2] for b in boxes_in_window]
-                all_y0 = [b[3] for b in boxes_in_window]
-                all_x1 = [b[4] for b in boxes_in_window]
-                all_y1 = [b[5] for b in boxes_in_window]
+                all_x0 = [b[0] for b in boxes_in_window]
+                all_y0 = [b[1] for b in boxes_in_window]
+                all_x1 = [b[2] for b in boxes_in_window]
+                all_y1 = [b[3] for b in boxes_in_window]
 
                 merged_x0 = min(all_x0)
                 merged_y0 = min(all_y0)
                 merged_x1 = max(all_x1)
                 merged_y1 = max(all_y1)
 
-                # Sum the areas of merged boxes
-                total_area = sum(b[1] for b in boxes_in_window)
-
-                merged_box = [chr(current_id + 97), total_area, merged_x0, merged_y0, merged_x1, merged_y1]
+                merged_box = [merged_x0, merged_y0, merged_x1, merged_y1]
                 merged_cluster_boxes.append(merged_box)
                 # Remove the merged boxes from the original list
                 cluster_boxes = [b for b in cluster_boxes if b not in boxes_in_window]
-                current_id += 1
 
     return merged_cluster_boxes
+
+
+def assign_id_and_area(bboxes: List[List[float]], mask: np.ndarray) -> List[List[float]]:
+    new_bboxes = []
+    for i, bbox in enumerate(bboxes):
+        x0, y0, x1, y1 = bbox
+        area = np.sum(mask[y0:y1, x0:x1] > 0)
+        new_bboxes.append([chr(i + 97), area, x0, y0, x1, y1])  # Assigning letters a-z as IDs
+    # Sort in descending order of bbox[1]
+    new_bboxes.sort(key=lambda x: x[1], reverse=True)
+    return new_bboxes
 
 
 def get_bboxes(mask: np.ndarray) -> np.ndarray:
@@ -172,7 +176,7 @@ def get_bboxes(mask: np.ndarray) -> np.ndarray:
     # Extract bounding boxes
     bounding_boxes = []
     cluster_boxes = []
-    for i, prop in enumerate(props):
+    for prop in props:
         ymin, xmin, ymax, xmax = prop.bbox
         area = prop.area
         if area < 4:
@@ -180,14 +184,16 @@ def get_bboxes(mask: np.ndarray) -> np.ndarray:
             mask[ymin:ymax, xmin:xmax] = 0
         else:
             if area < 10:
-                cluster_boxes.append([chr(i + 97), area, xmin, ymin, xmax, ymax])
+                cluster_boxes.append([xmin, ymin, xmax, ymax])
             else:
-                bounding_boxes.append([chr(i + 97), area, xmin, ymin, xmax, ymax])
+                bounding_boxes.append([xmin, ymin, xmax, ymax])
 
     if cluster_boxes:
         cluster_boxes = handle_clusters(mask, cluster_boxes)
         bounding_boxes.extend(cluster_boxes)
 
+    bounding_boxes = merge_overlapping_boxes(bounding_boxes, iou_threshold=0.7)
+    bounding_boxes = assign_id_and_area(bounding_boxes, mask)
     return bounding_boxes
 
 
@@ -226,16 +232,17 @@ def process_tif_file(file_path):
 
         # Decide mask to use
         final_mask = decide_mask(coastal_mask, sea_debris_mask)
+        profile.update(count=3)
         with rasterio.open(merged_output, "w", **profile) as dst:
             dst.write(final_mask, 1)
         # Get bounding boxes
         bboxes = get_bboxes(final_mask)
         if not bboxes:
-            return None, final_mask
+            return None, final_mask, profile
         # print(*bboxes, sep="\n", end=f"\n{len(bboxes)}\n")
 
     shutil.copy(file_path, OUTPUT_BASE)
-    return bboxes, final_mask
+    return bboxes, final_mask, profile
 
 
 def draw_yolo_boxes(image: np.ndarray, bboxes: List[List[float]]) -> np.ndarray:
@@ -283,13 +290,15 @@ def main():
     # Iterate through all .tif files in the input folder
     for filename in tqdm(VISUALS[:100]):
         if filename.endswith(".tif"):
-            bboxes, mask = process_tif_file(filename)
-
+            bboxes, mask, profile = process_tif_file(filename)
             output_image = draw_yolo_boxes(mask, bboxes)
 
         output_image = np.moveaxis(output_image, 2, 0)
-        count, height, width = output_image.shape
-        with rasterio.open(os.path.join(output_dir, os.path.basename(filename)), mode='w', driver="Gtiff", count=count, width=width, height=height, dtype=np.uint8) as dst:
+        with rasterio.open(
+            os.path.join(output_dir, os.path.basename(filename)),
+            mode='w',
+            **profile
+        ) as dst:
             dst.write(output_image)
 
     print("🎉 All files processed successfully!")
