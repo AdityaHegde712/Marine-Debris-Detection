@@ -16,7 +16,7 @@ import cv2
 
 # Define input and output folders
 INPUT_FOLDER = "test_images/**/*.tif"
-VISUALS = [i for i in glob(INPUT_FOLDER, recursive=True) if 'conf' not in i and 'cl' not in i] 
+VISUALS = [i for i in glob(INPUT_FOLDER, recursive=True) if 'conf' not in i and 'cl' not in i]
 OUTPUT_COASTAL = "./masks/coastal"
 OUTPUT_SEA = "./masks/sea"
 OUTPUT_BASE = "./masks/base"
@@ -40,8 +40,10 @@ WAVELENGTHS = {
 def make_255(image: np.ndarray) -> np.ndarray:
     return np.where(image > 0, 255, 0).astype(np.uint8)
 
+
 def make_uint8(image: np.ndarray) -> np.ndarray:
     return ((image-image.min())/(image.max()-image.min())*255).astype(np.uint8)
+
 
 def compute_indices(dataset):
     """Compute NDVI, NDWI, and FDI from Sentinel-2 bands."""
@@ -78,9 +80,7 @@ def decide_mask(coastal_mask: np.ndarray, sea_mask: np.ndarray) -> np.ndarray:
         return np.sum(mask > 0) / mask.size  # Ratio of nonzero pixels to total pixels
 
     coastal_coverage = coverage(coastal_mask)
-    print(coastal_coverage)
     sea_coverage = coverage(sea_mask)
-    print(sea_coverage)
 
     valid_coastal = 0 < coastal_coverage <= 0.6
     valid_sea = 0 < sea_coverage <= 0.6
@@ -237,11 +237,10 @@ def process_tif_file(file_path):
         bboxes = get_bboxes(final_mask)
         if not bboxes:
             return None, final_mask
-        # print(*bboxes, sep="\n", end=f"\n{len(bboxes)}\n")
 
         profile.update(count=3)
     shutil.copy(file_path, OUTPUT_BASE)
-    return bboxes, rgb_image, profile 
+    return bboxes, rgb_image, profile
 
 
 def draw_yolo_boxes(image: np.ndarray, bboxes: List[List[float]]) -> np.ndarray:
@@ -254,15 +253,13 @@ def draw_yolo_boxes(image: np.ndarray, bboxes: List[List[float]]) -> np.ndarray:
     Returns:
         np.ndarray: Image array with boxes drawn.
     """
-    print(image.dtype, end="\n\n")
-    print(image.shape, end="\n\n")
     if image.shape[0] == 1:
-        print("triggered 1", end="\n\n")
         image = np.stack((image[0],) * 3, axis=-1)
     if len(image.shape) == 2:
-        print("triggered 2", end="\n\n")
         image = np.stack((image,) * 3, axis=-1)
-    
+    if image.shape == (3, 256, 256):
+        image = np.transpose(image, (1, 2, 0)).copy()
+
     for bbox in bboxes:
         _, _, x1, y1, x2, y2 = bbox
         image = cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 1)

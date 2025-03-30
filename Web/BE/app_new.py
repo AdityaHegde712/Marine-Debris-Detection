@@ -7,7 +7,6 @@ import json
 from io import BytesIO
 
 import rasterio
-from tqdm import tqdm
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 from ultralytics import YOLO
@@ -36,7 +35,7 @@ except Exception:
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-#----------------------------------------------------------------------------------------------
+# ----------------------------------------------------------------------------------------------
 
 # FOR PLANETSCOPE DATA
 
@@ -168,18 +167,9 @@ def detect():
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
 
-        # Convert TIFF if necessary
-        # if filename.lower().endswith('.tif'):
-        #     processed_image = process_tif(file_path)
-        #     if not processed_image:
-        #         return jsonify({"error": "Failed to process TIFF"}), 500
-        #     file_path = processed_image # Use converted JPEG for detection
-
         image_base64, detections = detect_marine_debris(file_path)
-        # print(detections)
         json_path = make_json_path(file_path)
-        os.remove(file_path)  # Cleanup
-        # print("Existing GeoJSON files:", os.listdir(app.config['JSON_FOLDER']))
+        os.remove(file_path)
 
         return jsonify({
             "image_base64": image_base64,
@@ -190,8 +180,9 @@ def detect():
     return jsonify({"error": "Invalid file type"}), 400
 
 # ----------------------------------------------------------------------------------
-
 # FOR SENTINEL DATA
+# ----------------------------------------------------------------------------------
+
 
 app.config['SENTINEL_UPLOAD_FOLDER'] = 'sentinel_uploads/'  # Define an upload directory
 os.makedirs(app.config['SENTINEL_UPLOAD_FOLDER'], exist_ok=True)
@@ -199,16 +190,24 @@ app.config['SENTINEL_JSON_FOLDER'] = 'sentinel_json/'  # Define a JSON directory
 os.makedirs(app.config['SENTINEL_JSON_FOLDER'], exist_ok=True)
 app.config['SENTINEL_PROCESSED_FOLDER'] = 'sentinel_processed/'  # Define a processed directory
 os.makedirs(app.config['SENTINEL_PROCESSED_FOLDER'], exist_ok=True)
-VISUALS = [i for i in glob(app.config['SENTINEL_UPLOAD_FOLDER'], recursive=True) if 'conf' not in i and 'cl' not in i] 
+VISUALS = [i for i in glob(app.config['SENTINEL_UPLOAD_FOLDER'], recursive=True) if 'conf' not in i and 'cl' not in i]
+
+
+def save_rasterio_image(image: np.ndarray, filename: str, profile: dict):
+    image = np.moveaxis(image, 2, 0)
+    processed_path = os.path.join(app.config['SENTINEL_PROCESSED_FOLDER'], filename)
+    with rasterio.open(processed_path, mode='w', **profile) as dst:
+        dst.write(image)
+
 
 @app.route('/sentinel', methods=['POST'])
 def sentinel():
     print("Received request at /sentinel")
-    
+
     if 'file' not in request.files:
         print("No file provided in request")
         return jsonify({"error": "No file provided"}), 400
-    
+
     file = request.files['file']
     print(f"Received file: {file.filename}")
 
@@ -224,22 +223,15 @@ def sentinel():
 
     # Process file
     bboxes, image, profile = process_tif_file(file_path)
-    # print image.shape
-    print(type(image))
-    # print(image.shape)
     image = make_uint8(image)
-    # change 3, 256, 256 to 256, 256, 3
-    image = image.transpose((1, 2, 0)).copy() 
-    print(image.shape)
-    output_image = draw_yolo_boxes(image, bboxes)
-    output_image = np.moveaxis(output_image, 2, 0)
 
-    processed_path = os.path.join(app.config['SENTINEL_PROCESSED_FOLDER'], filename)
-    with rasterio.open(processed_path, mode='w', **profile) as dst:
-        dst.write(output_image)
+    # Draw bounding boxes on the image
+    output_image = draw_yolo_boxes(image, bboxes)  # Returns image shape (height, width, channels)
+
+    # Save image for inspection reasons
+    save_rasterio_image(output_image, filename, profile)
 
     img_data = BytesIO()
-    # output_image.save(img_data, format="JPEG")
     Image.fromarray(output_image).save(img_data, format="JPEG")
     img_data.seek(0)
 
@@ -251,8 +243,9 @@ def sentinel():
         'bboxes': final_boxes,
         'image': img_base64,
     }
-    
+
     return jsonify(response)
+
 
 if __name__ == '__main__':
     app.run(debug=True)
