@@ -38,3 +38,4 @@ seg2box
 *.tif
 *.xml
 *.png
+*.geojson
