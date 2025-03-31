@@ -1,155 +1,197 @@
 import React, { useState } from 'react';
-import { FileInput, Button, Spinner, Progress } from 'flowbite-react';
+import { FileInput, Button, Alert } from 'flowbite-react';
 import { NavBar } from '../components/NavBar';
-import { FooterComponent } from '../components/FooterComponent';
-import '../styles/Footer.css';
+import axios from 'axios';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 
-export default function Sentinel() {
-  const [file, setFile] = useState(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
+export default function SentinelUpload() {
+  const [files, setFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState(null);
-  const [predictionResult, setPredictionResult] = useState(null);
-
-  // Mapping for predicted class values
-  const classMap = {
-    0: 'AnnualCrop',
-    1: 'Forest',
-    2: 'HerbaceousVegetation',
-    3: 'Highway',
-    4: 'Industrial',
-    5: 'Pasture',
-    6: 'PermanentCrop',
-    7: 'Residential',
-    8: 'River',
-    9: 'SeaLake',
-  };
+  const [detections, setDetections] = useState([]);
+  const [detectedImage, setDetectedImage] = useState(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [originalTiffUrl, setOriginalTiffUrl] = useState(null);
+  const [geojsonPath, setGeojsonPath] = useState(null);
 
   const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
+    setFiles([...e.target.files]);
+    setDetections([]);
+    setDetectedImage(null);
+    setOriginalTiffUrl(URL.createObjectURL(e.target.files[0]));
   };
 
   const handleUpload = async () => {
-    if (!file) {
-      setError('Please select a file to upload');
+    if (files.length === 0) {
+      setError('Please select a .tif file to upload');
       return;
     }
 
     setIsUploading(true);
     setError(null);
+    setUploadProgress(0);
 
     const formData = new FormData();
-    formData.append('file', file);
+    formData.append('file', files[0]);
 
     try {
-      const uploadUrl = 'http://127.0.0.1:5000/sentinel'; // Change this to your backend API URL
-
-      const response = await fetch(uploadUrl, {
-        method: 'POST',
-        body: formData,
+      const response = await axios.post('http://127.0.0.1:5000/sentinel', formData, {
         headers: {
-          // Add any headers here if needed, such as authorization tokens
+          'Content-Type': 'multipart/form-data',
         },
         onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round(
-            (progressEvent.loaded * 100) / progressEvent.total
-          );
-          setUploadProgress(percentCompleted);
+          const progress = (progressEvent.loaded / progressEvent.total) * 100;
+          setUploadProgress(progress);
         },
       });
 
-      if (!response.ok) {
-        throw new Error('Upload failed');
-      }
-
-      const data = await response.json(); // Assuming response returns the classification result
-      setPredictionResult(data); // Store the prediction result in state
-
-      setIsUploading(false);
-      alert('File uploaded and processed successfully!');
+      const { bboxes, image, geojson_path } = response.data;
+      setDetections([bboxes]);
+      setDetectedImage(`data:image/jpeg;base64,${image}`);
+      setGeojsonPath(geojson_path);
     } catch (error) {
-      setIsUploading(false);
-      setError(error.message);
+      console.error("Upload error:", error.response?.data || error.message);
+      setError(error.response?.data?.error || 'Upload failed. Please try again.');
     }
+
+    setIsUploading(false);
   };
 
-  // Function to handle downloading the classification results
-  const handleDownload = () => {
-    const dataToDownload = {
-      predicted_class: classMap[predictionResult.predicted_class],
-      probability: predictionResult.probability,
-    };
+  const handleDownload = async () => {
+    if (!detections.length || !originalTiffUrl || !geojsonPath) return;
+    
+    setIsDownloading(true);
+    const zip = new JSZip();
+    
+    try {
+      // Fetch and add GeoJSON file
+      const geojsonFilename = geojsonPath.split('/').pop();
+      const geojsonResponse = await fetch(`http://localhost:5000/download_geojson/${geojsonFilename}`);
+      
+      if (!geojsonResponse.ok) {
+        throw new Error(`Failed to fetch GeoJSON: ${geojsonResponse.statusText}`);
+      }
 
-    const blob = new Blob([JSON.stringify(dataToDownload, null, 2)], {
-      type: 'application/json',
-    });
+      const geojsonBlob = await geojsonResponse.blob();
+      zip.file(`detection_${files[0].name}.geojson`, geojsonBlob);
 
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'classification_result.json';
-    link.click();
+      // Add original TIFF file
+      const tiffBlob = await fetch(originalTiffUrl).then(r => r.blob());
+      zip.file(`original_${files[0].name}`, tiffBlob);
+      
+      // Add processed image
+      if (detectedImage) {
+        const base64Data = detectedImage.split(',')[1];
+        zip.file(`processed_${files[0].name}.jpg`, base64Data, { base64: true });
+      }
+    } catch (error) {
+      console.error("Download error:", error);
+      setError('Failed to prepare download. Please try again.');
+    }
+    
+    // Generate zip file
+    const content = await zip.generateAsync({ type: "blob" });
+    saveAs(content, "marine_debris_results.zip");
+    setIsDownloading(false);
   };
 
   return (
     <>
       <NavBar />
-      <div className="max-w-md mx-auto mt-10">
-        <h2 className="text-2xl font-bold mb-4">Sentinel - File Upload</h2>
+      <div className="container mx-auto p-4">
+        <div className="max-w-md mx-auto mb-8">
+          <h2 className="text-2xl font-bold mb-4">Sentinel Data Upload</h2>
 
-        <FileInput
-          id="large-file-upload"
-          className="mb-4"
-          helperText="Please upload your dataset (e.g., images, zip files)"
-          onChange={handleFileChange}
-        />
+          <FileInput
+            id="file-upload"
+            className="mb-4"
+            helperText="Upload a Sentinel .tif file"
+            onChange={handleFileChange}
+            accept=".tif,.tiff"
+          />
 
-        {error && <p className="text-red-500">{error}</p>}
+          {error && <Alert color="failure" className="mb-4">{error}</Alert>}
 
-        {isUploading && (
-          <div className="mb-4">
-            <Spinner aria-label="File uploading..." />
-            <p>Uploading... {uploadProgress}%</p>
-            <Progress progress={uploadProgress} />
-          </div>
-        )}
+          {isUploading && (
+            <div className="mb-4">
+              <p>Uploading... {uploadProgress.toFixed(0)}%</p>
+            </div>
+          )}
 
-        <Button onClick={handleUpload} disabled={isUploading || !file}>
-          {isUploading ? 'Uploading...' : 'Upload File'}
-        </Button>
+          <Button 
+            onClick={handleUpload} 
+            disabled={isUploading || files.length === 0}
+            className="mb-8"
+          >
+            {isUploading ? 'Uploading...' : 'Upload File'}
+          </Button>
+        </div>
 
-        {predictionResult && (
-          <div className="mt-4">
-            <h3 className="text-lg font-semibold">Classification Result</h3>
-            <p>Predicted Class: {classMap[predictionResult.predicted_class]}</p>
-            <div className="mt-4">
-              <h4 className="font-semibold">Probabilities</h4>
-              <table className="min-w-full table-auto">
-                <thead>
-                  <tr>
-                    <th className="px-4 py-2">Class</th>
-                    <th className="px-4 py-2">Probability</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.keys(classMap).map((key) => (
-                    <tr key={key}>
-                      <td className="border px-4 py-2">{classMap[key]}</td>
-                      <td className="border px-4 py-2">
-                        {predictionResult.probability[key] || 'N/A'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {/* Results Display */}
+        {detectedImage && (
+          <div>
+            <h2 className="text-xl font-bold mb-4">Detected Marine Debris</h2>
+            <p className="mb-4 text-gray-600">({files[0].name}):</p>
+
+            <div className="flex flex-col md:flex-row gap-8 mb-8">
+              {/* Image Display */}
+              <div className="flex-1">
+                <img 
+                  src={detectedImage} 
+                  alt="Detection results" 
+                  className="w-full h-auto border border-gray-300 rounded"
+                />
+              </div>
+
+              {/* Detection Results Table */}
+              <div className="flex-1">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-white border border-gray-300">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border border-gray-300 px-4 py-2">#</th>
+                        <th className="border border-gray-300 px-4 py-2">ID</th>
+                        <th className="border border-gray-300 px-4 py-2">AREA (M²)</th>
+                        <th className="border border-gray-300 px-4 py-2">Top-Left X</th>
+                        <th className="border border-gray-300 px-4 py-2">Top-Left Y</th>
+                        <th className="border border-gray-300 px-4 py-2">Bottom-Right X</th>
+                        <th className="border border-gray-300 px-4 py-2">Bottom-Right Y</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detections[0]?.map((box, i) => {
+                        const [id, area, x0, y0, x1, y1] = box.length >= 6 ? box : [null, null, null, null, null, null];
+                        return (
+                          <tr key={i} className="text-center hover:bg-gray-50">
+                            <td className="border border-gray-300 px-4 py-2">{i + 1}</td>
+                            <td className="border border-gray-300 px-4 py-2">{id ?? "N/A"}</td>
+                            <td className="border border-gray-300 px-4 py-2">{area ? area.toFixed(2) : "N/A"}</td>
+                            <td className="border border-gray-300 px-4 py-2">{x0 ?? "N/A"}</td>
+                            <td className="border border-gray-300 px-4 py-2">{y0 ?? "N/A"}</td>
+                            <td className="border border-gray-300 px-4 py-2">{x1 ?? "N/A"}</td>
+                            <td className="border border-gray-300 px-4 py-2">{y1 ?? "N/A"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <div className="text-center">
+              <Button
+                onClick={handleDownload}
+                disabled={isDownloading}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
+              >
+                {isDownloading ? 'Processing...' : 'Download All Results (.zip)'}
+              </Button>
             </div>
           </div>
         )}
-
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <Button gradientDuoTone="tealToLime" onClick={handleDownload}>
-            Download Classification Results
-          </Button>
-        </div>
       </div>
     </>
   );
