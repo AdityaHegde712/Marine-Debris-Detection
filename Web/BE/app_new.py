@@ -1,5 +1,3 @@
-
-
 from glob import glob
 import os
 import base64
@@ -11,33 +9,28 @@ from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
 from ultralytics import YOLO
 from flask_cors import CORS
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 import numpy as np
 from flask import send_file
 from planet_functions import (
     allowed_file,
     merge_overlapping_boxes,
-    init_geojson,
-    make_feature,
     process_tif,
     save_image,
-    label_image
+    make_geojson
 )
-
-from sentinel_functions import (process_tif_file, draw_yolo_boxes, make_uint8)
-
-# Load a monospaced font (fallback to default if not available)
-try:
-    font = ImageFont.truetype("DejaVuSansMono.ttf", size=12)
-except Exception:
-    font = ImageFont.load_default()
+from sentinel_functions import (
+    process_tif_file,
+    make_uint8
+)
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
 # ----------------------------------------------------------------------------------------------
-
 # FOR PLANETSCOPE DATA
+# ----------------------------------------------------------------------------------------------
+
 
 app.config['UPLOAD_FOLDER'] = 'uploads/'  # Define an upload directory
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -50,12 +43,23 @@ model_path = r"ai_models/PLANET.pt"
 model = YOLO(model_path)
 
 
-def make_json_path(x: str) -> str:
-    return os.path.join(app.config['JSON_FOLDER'], f"{os.path.splitext(os.path.basename(x))[0]}.geojson")
+def make_json_path(x: str, mode: str = 'PLANET') -> str:
+    folder = app.config['JSON_FOLDER'] if mode == 'PLANET' else app.config['SENTINEL_JSON_FOLDER']
+    return os.path.join(folder, f"{os.path.splitext(os.path.basename(x))[0]}.geojson")
 
 
-def make_image_path(x: str) -> str:
-    return os.path.join(app.config['PROCESSED_FOLDER'], os.path.basename(x))
+def make_image_path(x: str, mode: str = 'PLANET') -> str:
+    folder = app.config['UPLOAD_FOLDER'] if mode == 'PLANET' else app.config['SENTINEL_UPLOAD_FOLDER']
+    return os.path.join(folder, os.path.basename(x))
+
+
+def save_rasterio_image(image: np.ndarray, filename: str, profile: dict):
+    if isinstance(image, Image.Image):
+        image = np.array(image)
+    image = np.moveaxis(image, 2, 0)
+    processed_path = os.path.join(app.config['SENTINEL_PROCESSED_FOLDER'], filename)
+    with rasterio.open(processed_path, mode='w', **profile) as dst:
+        dst.write(image)
 
 
 def detect_marine_debris(image_path: str):
@@ -75,8 +79,6 @@ def detect_marine_debris(image_path: str):
         if img is None:  # Handle failed TIFF processing
             return None, None  # Stop processing if TIFF conversion failed
         draw = ImageDraw.Draw(img)
-        longitude_width = bounds.right - bounds.left
-        latitude_height = abs(bounds.top - bounds.bottom)
 
     # Draw bounding boxes
     bboxes = []
@@ -93,45 +95,20 @@ def detect_marine_debris(image_path: str):
     merged_boxes = merge_overlapping_boxes(bboxes)
 
     # Draw merged bounding boxes
-    geojson = init_geojson()
-    final_boxes = []
-    for i, box in enumerate(merged_boxes):
-        x0, y0, x1, y1 = box
-
-        # Create properties
-        box_properties = {
-            "area_m2": abs((x1 - x0) * (y1 - y0) * 9),
-            "box_id": chr(97 + i)
-        }
-
-        # Latlong determination
-        if bounds:
-            x0 = (bounds.left + (x0 / img.width) * longitude_width)
-            y0 = (bounds.top - (y0 / img.height) * latitude_height)
-            x1 = (bounds.left + (x1 / img.width) * longitude_width)
-            y1 = (bounds.top - (y1 / img.height) * latitude_height)
-            final_boxes.append([box_properties["box_id"], box_properties["area_m2"], x0, y0, x1, y1])
-        else:
-            final_boxes.append([box_properties["box_id"], box_properties["area_m2"], x0, y0, x1, y1])
-            y0 = -y0
-            y1 = -y1
-
-        geojson["features"].append(make_feature(
-                x0=x0,
-                y0=y0,
-                x1=x1,
-                y1=y1,
-                properties=box_properties
-        ))
-
-        draw.rectangle(box, outline="red", width=3)
-        draw = label_image(draw, box, box_properties["box_id"], font=font)
+    draw, geojson, final_boxes = make_geojson(
+        draw=draw,
+        merged_boxes=merged_boxes,
+        bounds=bounds,
+        img_size=(img.width, img.height)
+    )
 
     # Save image with bounding boxes
+    print(f"Saving image to {make_image_path(image_path)}")
     save_image(np.array(img), make_image_path(image_path), crs, transform)
 
     # Save the geojson as image_path.geojson
-    with open(make_json_path(image_path), "w") as f:
+    geojson_path = make_json_path(image_path)
+    with open(geojson_path, "w") as f:
         json.dump(geojson, f)
 
     # Save the annotated image to a buffer
@@ -143,7 +120,10 @@ def detect_marine_debris(image_path: str):
     img_base64 = base64.b64encode(img_data.getvalue()).decode("utf-8")
     final_boxes = sorted(final_boxes, key=lambda x: x[1], reverse=True)
 
-    return img_base64, final_boxes
+    return img_base64, final_boxes, geojson_path
+
+# TODO: Make an endpoint for the processed planet image
+# Current downloaded version is not georeferenced, but the original image is
 
 
 @app.route('/download_geojson/<filename>', methods=['GET'])
@@ -167,8 +147,7 @@ def detect():
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
 
-        image_base64, detections = detect_marine_debris(file_path)
-        json_path = make_json_path(file_path)
+        image_base64, detections, json_path = detect_marine_debris(file_path)
         os.remove(file_path)
 
         return jsonify({
@@ -193,13 +172,6 @@ os.makedirs(app.config['SENTINEL_PROCESSED_FOLDER'], exist_ok=True)
 VISUALS = [i for i in glob(app.config['SENTINEL_UPLOAD_FOLDER'], recursive=True) if 'conf' not in i and 'cl' not in i]
 
 
-def save_rasterio_image(image: np.ndarray, filename: str, profile: dict):
-    image = np.moveaxis(image, 2, 0)
-    processed_path = os.path.join(app.config['SENTINEL_PROCESSED_FOLDER'], filename)
-    with rasterio.open(processed_path, mode='w', **profile) as dst:
-        dst.write(image)
-
-
 @app.route('/sentinel', methods=['POST'])
 def sentinel():
     print("Received request at /sentinel")
@@ -222,17 +194,18 @@ def sentinel():
     print(f"Saved file to {file_path}")
 
     # Process file
-    bboxes, image, profile = process_tif_file(file_path)
-    image = make_uint8(image)
+    bboxes, geojson, output_image, profile = process_tif_file(file_path)
+    output_image = Image.fromarray(make_uint8(np.array(output_image)))
 
-    # Draw bounding boxes on the image
-    output_image = draw_yolo_boxes(image, bboxes)  # Returns image shape (height, width, channels)
+    # Save geojson to file
+    with open(make_json_path(file_path, mode='SENTINEL'), "w") as f:
+        json.dump(geojson, f)
 
     # Save image for inspection reasons
     save_rasterio_image(output_image, filename, profile)
 
     img_data = BytesIO()
-    Image.fromarray(output_image).save(img_data, format="JPEG")
+    output_image.save(img_data, format="JPEG")
     img_data.seek(0)
 
     # Encode image as Base64

@@ -6,13 +6,21 @@ import shutil
 from glob import glob
 from typing import List
 import rasterio
+from rasterio.coords import BoundingBox
+from rasterio.transform import from_bounds
 import numpy as np
 from skimage.measure import label, regionprops
 from skimage.morphology import remove_small_objects
+from pyproj import Transformer
 import torch
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-import cv2
+from PIL import Image, ImageDraw
+from planet_functions import (
+    make_geojson,
+    merge_overlapping_boxes,
+    label_image,
+)
 
 # Define input and output folders
 INPUT_FOLDER = "test_images/**/*.tif"
@@ -111,8 +119,6 @@ def handle_clusters(mask: np.ndarray, cluster_boxes: List) -> List:
     x_step = mask.shape[1] // 8
     y_step = mask.shape[0] // 8
 
-    current_id = min([ord(box[0]) for box in cluster_boxes]) - 97
-
     for i in range(8):  # 8 vertical steps
         for j in range(8):  # 8 horizontal steps
             x_start = x_step * j
@@ -122,7 +128,7 @@ def handle_clusters(mask: np.ndarray, cluster_boxes: List) -> List:
 
             boxes_in_window = []
             for box in cluster_boxes:
-                _, _, x0, y0, x1, y1 = box
+                x0, y0, x1, y1 = box
                 # Compute center of the box
                 center_x = (x0 + x1) // 2
                 center_y = (y0 + y1) // 2
@@ -132,26 +138,40 @@ def handle_clusters(mask: np.ndarray, cluster_boxes: List) -> List:
 
             if boxes_in_window:
                 # Merge all these boxes into one
-                all_x0 = [b[2] for b in boxes_in_window]
-                all_y0 = [b[3] for b in boxes_in_window]
-                all_x1 = [b[4] for b in boxes_in_window]
-                all_y1 = [b[5] for b in boxes_in_window]
+                all_x0 = [b[-4] for b in boxes_in_window]
+                all_y0 = [b[-3] for b in boxes_in_window]
+                all_x1 = [b[-2] for b in boxes_in_window]
+                all_y1 = [b[-1] for b in boxes_in_window]
 
                 merged_x0 = min(all_x0)
                 merged_y0 = min(all_y0)
                 merged_x1 = max(all_x1)
                 merged_y1 = max(all_y1)
 
-                # Sum the areas of merged boxes
-                total_area = sum(b[1] for b in boxes_in_window)
-
-                merged_box = [chr(current_id + 97), total_area, merged_x0, merged_y0, merged_x1, merged_y1]
+                merged_box = [merged_x0, merged_y0, merged_x1, merged_y1]
                 merged_cluster_boxes.append(merged_box)
                 # Remove the merged boxes from the original list
                 cluster_boxes = [b for b in cluster_boxes if b not in boxes_in_window]
-                current_id += 1
 
     return merged_cluster_boxes
+
+
+def recheck_areas(bboxes: List[List], mask: np.ndarray) -> List:
+    new_boxes = []
+    for i, bbox in enumerate(bboxes):
+        if len(bbox) > 4:
+            _, _, x0, y0, x1, y1 = bbox
+        else:
+            x0, y0, x1, y1 = bbox
+
+        # Recompute area
+        image_section = mask[y0:y1, x0:x1]
+        area = np.sum(image_section > 0)
+
+        # Remake the entry
+        new_boxes.append([chr(i+97), area, x0, y0, x1, y1])
+
+    return new_boxes
 
 
 def get_bboxes(mask: np.ndarray) -> np.ndarray:
@@ -182,23 +202,42 @@ def get_bboxes(mask: np.ndarray) -> np.ndarray:
             mask[ymin:ymax, xmin:xmax] = 0
         else:
             if area < 10:
-                cluster_boxes.append([chr(i + 97), area, xmin, ymin, xmax, ymax])
+                cluster_boxes.append([xmin, ymin, xmax, ymax])
             else:
-                bounding_boxes.append([chr(i + 97), area, xmin, ymin, xmax, ymax])
+                bounding_boxes.append([xmin, ymin, xmax, ymax])
 
     if cluster_boxes:
         cluster_boxes = handle_clusters(mask, cluster_boxes)
         bounding_boxes.extend(cluster_boxes)
 
+    bounding_boxes = merge_overlapping_boxes(bounding_boxes)
+    bounding_boxes = recheck_areas(bounding_boxes, mask)
+
     return bounding_boxes
+
+
+def process_bounds(bounds, crs):
+    # Define the source (EPSG:32616) and target (EPSG:4326) CRS
+    transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+
+    # Transform each corner of the bounding box
+    left, top = transformer.transform(bounds.left, bounds.top)
+    right, bottom = transformer.transform(bounds.right, bounds.bottom)
+
+    bbox = BoundingBox(left, bottom, right, top)
+    return bbox
 
 
 def process_tif_file(file_path):
     """Process a single .tif file and save the stacked output in FDI, NDWI, NDVI order."""
-    coastal_output = os.path.join(OUTPUT_COASTAL, os.path.basename(file_path).replace(".tif", "_0coastal.tif"))
-    sea_debris_output = os.path.join(OUTPUT_SEA, os.path.basename(file_path).replace(".tif", "_1sea_debris.tif"))
+    # coastal_output = os.path.join(OUTPUT_COASTAL, os.path.basename(file_path).replace(".tif", "_0coastal.tif"))
+    # sea_debris_output = os.path.join(OUTPUT_SEA, os.path.basename(file_path).replace(".tif", "_1sea_debris.tif"))
     merged_output = os.path.join(OUTPUT_FINAL, os.path.basename(file_path).replace(".tif", "_2merged.tif"))
 
+    bboxes = None
+    bounds = None
+    crs = None
+    transform = None
     with rasterio.open(file_path) as dataset:
         # Compute indices
         ndvi, ndwi, fdi = compute_indices(dataset)
@@ -223,24 +262,48 @@ def process_tif_file(file_path):
         # RGB Image
         rgb_image = dataset.read((4, 3, 2))
 
-        # Save the new image
-        with rasterio.open(coastal_output, "w", **profile) as dst:
-            dst.write(coastal_mask, 1)
-        with rasterio.open(sea_debris_output, "w", **profile) as dst:
-            dst.write(sea_debris_mask, 1)
+        # # Save the new image
+        # with rasterio.open(coastal_output, "w", **profile) as dst:
+        #     dst.write(coastal_mask, 1)
+        # with rasterio.open(sea_debris_output, "w", **profile) as dst:
+        #     dst.write(sea_debris_mask, 1)
 
         # Decide mask to use
         final_mask = decide_mask(coastal_mask, sea_debris_mask)
+
+        # Get bounds
+        bounds = process_bounds(dataset.bounds, dataset.crs)
+        transform = from_bounds(bounds.left, bounds.bottom, bounds.right, bounds.top, final_mask.shape[1], final_mask.shape[0])
+        crs = 'EPSG:4326'
+        profile.update(crs=crs, transform=transform)
+
+        # Save the image
         with rasterio.open(merged_output, "w", **profile) as dst:
             dst.write(final_mask, 1)
+
         # Get bounding boxes
         bboxes = get_bboxes(final_mask)
-        if not bboxes:
-            return None, final_mask
+        # bboxes = remove_nested_boxes(bboxes)
 
+        # Band update
         profile.update(count=3)
+
+        # Draw on RGB image
+        rgb_image = make_uint8(rgb_image)
+
+    # Make geojson
+    rgb_image = rgb_image.transpose(1, 2, 0).copy()
+    drawn_image = Image.fromarray(rgb_image.copy())
+    draw = ImageDraw.Draw(drawn_image)
+    draw, geojson, bboxes = make_geojson(
+        draw=draw,
+        merged_boxes=bboxes,
+        img_size=(final_mask.shape[1], final_mask.shape[0]),
+        bounds=bounds
+    )
+
     shutil.copy(file_path, OUTPUT_BASE)
-    return bboxes, rgb_image, profile
+    return bboxes, geojson, drawn_image, profile
 
 
 def draw_yolo_boxes(image: np.ndarray, bboxes: List[List[float]]) -> np.ndarray:
@@ -260,11 +323,19 @@ def draw_yolo_boxes(image: np.ndarray, bboxes: List[List[float]]) -> np.ndarray:
     if image.shape == (3, 256, 256):
         image = np.transpose(image, (1, 2, 0)).copy()
 
-    for bbox in bboxes:
-        _, _, x1, y1, x2, y2 = bbox
-        image = cv2.rectangle(image, (x1, y1), (x2, y2), (255, 0, 0), 1)
+    # Convert NumPy array to Pillow Image
+    pil_image = Image.fromarray(image).convert("RGB")
+    draw = ImageDraw.Draw(pil_image)
 
-    return image
+    for bbox in bboxes:
+        id, _, x1, y1, x2, y2 = bbox
+
+        # Draw the bounding box
+        draw.rectangle([(x1, y1), (x2, y2)], outline="red", width=3)
+        draw = label_image(draw, bbox, id)
+
+    # Convert back to NumPy array
+    return np.array(pil_image)
 
 
 def side_by_side(image_set_1, image_set_2):
