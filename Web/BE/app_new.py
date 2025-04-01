@@ -135,6 +135,19 @@ def download_geojson(filename):
 
     return send_file(geojson_path, as_attachment=True, mimetype="application/json")
 
+@app.route('/download_planetscope_processed/<filename>', methods=['GET'])
+def download_planetscope_processed(filename):
+    processed_path = os.path.join(app.config['PROCESSED_FOLDER'], filename)
+    if not os.path.exists(processed_path):
+        return jsonify({"error": "Processed image not found"}), 404
+    return send_file(processed_path, as_attachment=True)
+
+@app.route('/download_planetscope_original/<filename>', methods=['GET'])
+def download_planetscope_original(filename):
+    original_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if not os.path.exists(original_path):
+        return jsonify({"error": "Original image not found"}), 404
+    return send_file(original_path, as_attachment=True)
 
 @app.route('/marinedebris/detect', methods=['POST'])
 def detect():
@@ -219,6 +232,26 @@ def sentinel():
 
     return jsonify(response)
 
+@app.route('/download_sentinel_geojson/<filename>', methods=['GET'])
+def download_sentinel_geojson(filename):
+    geojson_path = os.path.join(app.config['SENTINEL_JSON_FOLDER'], filename)
+    if not os.path.exists(geojson_path):
+        return jsonify({"error": "GeoJSON file not found"}), 404
+    return send_file(geojson_path, as_attachment=True, mimetype="application/json")
+
+@app.route('/download_sentinel_processed_tif/<filename>', methods=['GET'])
+def download_sentinel_processed_tif(filename):
+    processed_path = os.path.join(app.config['SENTINEL_PROCESSED_FOLDER'], filename)
+    if not os.path.exists(processed_path):
+        return jsonify({"error": "Processed TIFF file not found"}), 404
+    return send_file(processed_path, as_attachment=True)
+
+@app.route('/download_sentinel_original_tif/<filename>', methods=['GET'])
+def download_sentinel_original_tif(filename):
+    original_path = os.path.join(app.config['SENTINEL_UPLOAD_FOLDER'], filename)
+    if not os.path.exists(original_path):
+        return jsonify({"error": "Original TIFF file not found"}), 404
+    return send_file(original_path, as_attachment=True)
 
 if __name__ == '__main__':
     app.run(debug=True)

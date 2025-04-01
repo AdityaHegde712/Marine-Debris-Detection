@@ -10,6 +10,7 @@ export default function ObjectDetection() {
   const [files, setFiles] = useState([]);
   const [images, setImages] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState(null);
   const [detections, setDetections] = useState([]);
@@ -69,54 +70,75 @@ export default function ObjectDetection() {
 
   const handleDownload = async () => {
     if (images.length === 0 || detections.length === 0) {
-        setError('No processed images or data available for download.');
-        return;
+      setError('No processed images or data available for download');
+      return;
     }
-
-    const zip = new JSZip();
-    console.log({jsons})
-    // Fetch and add GeoJSON files to ZIP
-    const geojsonPromises = jsons.map(async (data, index) => {
-      console.log("Reached here")
-        if (data) {
-            const filename = data.split('/').pop();
-            console.log(`Fetching GeoJSON: ${filename}`);
-
-            try {
-                const response = await fetch(`http://localhost:5000/download_geojson/${filename}`);
-
-                if (!response.ok) {
-                    throw new Error(`Failed to fetch ${filename}: ${response.statusText}`);
-                }
-
-                console.log(`Successfully fetched: ${filename}`);
-
-                const geojsonBlob = await response.blob();
-
-                // Use a consistent naming pattern and ensure files[index] exists before using it
-                const geojsonFileName = files[index] ? `detection_${files[index].name}.geojson` : `detection_${index}.geojson`;
-                zip.file(geojsonFileName, geojsonBlob);
-            } catch (error) {
-                console.error(`GeoJSON download error for ${filename}:`, error);
-            }
-        } else {
-            console.warn(`Missing json_path for detection index ${index}`);
+  
+    setIsDownloading(true);
+    setError(null);
+  
+    try {
+      const zip = new JSZip();
+      
+      // Process each file in parallel
+      await Promise.all(files.map(async (file, index) => {
+        const baseName = file.name.split('.')[0];
+        
+        // 1. Add GeoJSON
+        try {
+          const geojsonFilename = `${baseName}.geojson`;
+          const geojsonResponse = await fetch(
+            `http://localhost:5000/download_geojson/${geojsonFilename}`
+          );
+          if (geojsonResponse.ok) {
+            zip.file(`${baseName}.geojson`, await geojsonResponse.blob());
+          }
+        } catch (error) {
+          console.error(`GeoJSON error for ${file.name}:`, error);
         }
-    });
-
-    // Add processed images to ZIP
-    images.forEach((image, index) => {
-        const base64Data = image.split(',')[1];
-        zip.file(`processed_${files[index].name}`, base64Data, { base64: true });
-    });
-
-    // Wait for all GeoJSON files to be added before generating the ZIP
-    await Promise.all(geojsonPromises);
-
-    // Generate and trigger download of the ZIP file
-    const zipBlob = await zip.generateAsync({ type: 'blob' });
-    saveAs(zipBlob, 'marine_debris_results.zip');
-};
+  
+        // 2. Add Processed Image
+        try {
+          const processedResponse = await fetch(
+            `http://localhost:5000/download_planetscope_processed/${file.name}`
+          );
+          if (processedResponse.ok) {
+            zip.file(`${baseName}_processed.jpg`, await processedResponse.blob());
+          }
+        } catch (error) {
+          console.error(`Processed image error for ${file.name}:`, error);
+        }
+  
+        // 3. Add Original Image (optional)
+        try {
+          const originalResponse = await fetch(
+            `http://localhost:5000/download_planetscope_original/${file.name}`
+          );
+          if (originalResponse.ok) {
+            zip.file(`${baseName}_original.jpg`, await originalResponse.blob());
+          }
+        } catch (error) {
+          console.error(`Original image error for ${file.name}:`, error);
+        }
+  
+        // 4. Add Base64 Preview
+        if (images[index]) {
+          const base64Data = images[index].split(',')[1];
+          zip.file(`${baseName}_preview.jpg`, base64Data, { base64: true });
+        }
+      }));
+  
+      // Generate and download zip
+      const content = await zip.generateAsync({ type: 'blob' });
+      saveAs(content, 'planetscope_marine_debris_results.zip');
+  
+    } catch (error) {
+      setError('Failed to prepare download package');
+      console.error('Download error:', error);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
 
   return (

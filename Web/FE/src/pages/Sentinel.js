@@ -5,6 +5,7 @@ import axios from 'axios';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
+
 export default function SentinelUpload() {
   const [files, setFiles] = useState([]);
   const [isUploading, setIsUploading] = useState(false);
@@ -60,41 +61,59 @@ export default function SentinelUpload() {
   };
 
   const handleDownload = async () => {
-    if (!detections.length || !originalTiffUrl || !geojsonPath) return;
-    
-    setIsDownloading(true);
-    const zip = new JSZip();
-    
-    try {
-      // Fetch and add GeoJSON file
-      const geojsonFilename = geojsonPath.split('/').pop();
-      const geojsonResponse = await fetch(`http://localhost:5000/download_geojson/${geojsonFilename}`);
-      
-      if (!geojsonResponse.ok) {
-        throw new Error(`Failed to fetch GeoJSON: ${geojsonResponse.statusText}`);
-      }
-
-      const geojsonBlob = await geojsonResponse.blob();
-      zip.file(`detection_${files[0].name}.geojson`, geojsonBlob);
-
-      // Add original TIFF file
-      const tiffBlob = await fetch(originalTiffUrl).then(r => r.blob());
-      zip.file(`original_${files[0].name}`, tiffBlob);
-      
-      // Add processed image
-      if (detectedImage) {
-        const base64Data = detectedImage.split(',')[1];
-        zip.file(`processed_${files[0].name}.jpg`, base64Data, { base64: true });
-      }
-    } catch (error) {
-      console.error("Download error:", error);
-      setError('Failed to prepare download. Please try again.');
+    if (!files.length || !detectedImage) {
+      setError('Please process an image first');
+      return;
     }
-    
-    // Generate zip file
-    const content = await zip.generateAsync({ type: "blob" });
-    saveAs(content, "marine_debris_results.zip");
-    setIsDownloading(false);
+  
+    setIsDownloading(true);
+    setError(null);
+    const filename = files[0].name;
+    const baseName = filename.replace('.tif', '');
+  
+    try {
+      const zip = new JSZip();
+      
+      // 1. Add Sentinel GeoJSON
+      const geojsonResponse = await fetch(
+        `http://localhost:5000/download_sentinel_geojson/${baseName}.geojson`
+      );
+      if (!geojsonResponse.ok) throw new Error('Failed to download GeoJSON');
+      zip.file(`${baseName}.geojson`, await geojsonResponse.blob());
+  
+      // 2. Add Processed Sentinel TIFF
+      const processedResponse = await fetch(
+        `http://localhost:5000/download_sentinel_processed_tif/${filename}`
+      );
+      if (!processedResponse.ok) throw new Error('Failed to download processed TIFF');
+      zip.file(`${baseName}_processed.tif`, await processedResponse.blob());
+  
+      // 3. Add Original Sentinel TIFF (optional)
+      try {
+        const originalResponse = await fetch(
+          `http://localhost:5000/download_sentinel_original_tif/${filename}`
+        );
+        if (originalResponse.ok) {
+          zip.file(`${baseName}_original.tif`, await originalResponse.blob());
+        }
+      } catch (e) {
+        console.warn('Original TIFF not included:', e);
+      }
+  
+      // 4. Add Preview Image
+      const base64Data = detectedImage.split(',')[1];
+      zip.file(`${baseName}_preview.jpg`, base64Data, { base64: true });
+  
+      // Generate and download zip
+      const content = await zip.generateAsync({ type: 'blob' });
+      saveAs(content, `${baseName}_marine_debris_results.zip`);
+  
+    } catch (error) {
+      setError(error.message || 'Failed to prepare download package');
+      console.error('Download error:', error);
+    } finally {
+      setIsDownloading(false);
+    }
   };
 
   return (
