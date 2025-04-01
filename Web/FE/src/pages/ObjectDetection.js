@@ -83,7 +83,7 @@ export default function ObjectDetection() {
       // Process each file in parallel
       await Promise.all(files.map(async (file, index) => {
         const baseName = file.name.split('.')[0];
-        
+        const extension = file.name.split('.')[1];
         // 1. Add GeoJSON
         try {
           const geojsonFilename = `${baseName}.geojson`;
@@ -103,7 +103,7 @@ export default function ObjectDetection() {
             `http://localhost:5000/download_planetscope_processed/${file.name}`
           );
           if (processedResponse.ok) {
-            zip.file(`${baseName}_processed.jpg`, await processedResponse.blob());
+            zip.file(`${baseName}_processed.${extension}`, await processedResponse.blob());
           }
         } catch (error) {
           console.error(`Processed image error for ${file.name}:`, error);
@@ -115,7 +115,7 @@ export default function ObjectDetection() {
             `http://localhost:5000/download_planetscope_original/${file.name}`
           );
           if (originalResponse.ok) {
-            zip.file(`${baseName}_original.jpg`, await originalResponse.blob());
+            zip.file(`${baseName}_original.${extension}`, await originalResponse.blob());
           }
         } catch (error) {
           console.error(`Original image error for ${file.name}:`, error);
@@ -124,7 +124,7 @@ export default function ObjectDetection() {
         // 4. Add Base64 Preview
         if (images[index]) {
           const base64Data = images[index].split(',')[1];
-          zip.file(`${baseName}_preview.jpg`, base64Data, { base64: true });
+          zip.file(`${baseName}_preview.${extension}`, base64Data, { base64: true });
         }
       }));
   

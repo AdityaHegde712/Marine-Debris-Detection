@@ -164,7 +164,7 @@ def detect():
         file.save(file_path)
 
         image_base64, detections, json_path = detect_marine_debris(file_path)
-        os.remove(file_path)
+        
 
         return jsonify({
             "image_base64": image_base64,
